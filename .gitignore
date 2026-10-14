@@ -1,0 +1,6 @@
+/bin/
+*.test
+*.out
+*.prof
+coverage*.txt
+coverage*.html
