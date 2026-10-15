@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Usage: fuzz.sh FUZZTIME MODULE...
-# Runs every Fuzz* target of every package in the given modules for FUZZTIME each.
+# Runs every Fuzz* target of every package in the given modules. FUZZTIME is
+# passed to -fuzztime: an execution count (1000000x) or a duration (30s).
 set -euo pipefail
 
 fuzztime=$1

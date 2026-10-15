@@ -29,7 +29,7 @@ RPC для Go поверх нативных потоков QUIC ([quic-go](https
 
 ```sh
 make check   # gofmt, go mod tidy, сгенерированный код, go vet, линтер, тесты с -race
-make fuzz    # fuzz-тесты, по 30 с на каждую цель
+make fuzz    # fuzz-тесты, по 1 млн запусков на каждую цель
 make proto   # перегенерировать код из .proto (нужен protoc 3.21.12)
 ```
 
