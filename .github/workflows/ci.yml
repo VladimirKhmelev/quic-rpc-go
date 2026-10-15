@@ -25,7 +25,13 @@ jobs:
         with:
           version: v2.12.2
           install-only: true
-      - run: make fmt-check tidy-check lint
+      - name: Install protoc 21.12
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+      - run: make fmt-check tidy-check proto-check lint
 
   test:
     runs-on: ubuntu-24.04
