@@ -51,4 +51,4 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: "**/go.mod"
-      - run: make fuzz FUZZTIME=30s
+      - run: make fuzz

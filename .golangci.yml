@@ -12,7 +12,8 @@ linters:
     - unparam
   exclusions:
     rules:
-      - path: _test\.go
+      # gosec targets production code; tests and test helpers are exempt.
+      - path: (_test\.go|/internal/transporttest/)
         linters:
           - gosec
 

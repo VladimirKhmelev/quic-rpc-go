@@ -1,5 +1,7 @@
 MODULES  := rpc
-FUZZTIME ?= 30s
+# An execution count, not a duration: when a duration runs out, Go's fuzz
+# coordinator can fail the run with a spurious "context deadline exceeded".
+FUZZTIME ?= 1000000x
 
 PROTOC_GEN_GO := $(CURDIR)/bin/protoc-gen-go
 # Relative to rpc/.
