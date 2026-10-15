@@ -1,0 +1,35 @@
+// Payloads of the HEADERS and TRAILERS frames. See docs/protocol.md.
+syntax = "proto3";
+
+package quicrpc.frame.v1;
+
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/VladimirKhmelev/quic-rpc-go/rpc/internal/frame/framepb";
+
+// Headers opens a call (client to server) or carries the server's
+// initial metadata (server to client, before the first MESSAGE).
+message Headers {
+  // Full method name "/package.Service/Method". Client to server only.
+  string method = 1;
+  // Remaining time until the client's deadline, in microseconds,
+  // measured when the frame is sent. 0 means no deadline. Client to server only.
+  uint64 timeout_us = 2;
+  repeated Metadata metadata = 3;
+}
+
+// Trailers is the last frame the server sends on a call.
+message Trailers {
+  // Status code; same numbering as gRPC codes (0..16).
+  uint32 code = 1;
+  string message = 2;
+  repeated google.protobuf.Any details = 3;
+  repeated Metadata metadata = 4;
+}
+
+// Metadata is one key with its values. Values are bytes because keys with
+// the "-bin" suffix carry arbitrary binary data, as in gRPC.
+message Metadata {
+  string key = 1;
+  repeated bytes values = 2;
+}
