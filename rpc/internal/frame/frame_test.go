@@ -160,6 +160,10 @@ func TestTooLarge(t *testing.T) {
 			if !errors.Is(err, frame.ErrTooLarge) {
 				t.Fatalf("got %v, want ErrTooLarge", err)
 			}
+			tl, ok := errors.AsType[*frame.TooLargeError](err)
+			if !ok || tl.Type != tt.typ || tl.Size != tt.size {
+				t.Fatalf("got %#v, want a TooLargeError for %v of %d bytes", err, tt.typ, tt.size)
+			}
 		})
 	}
 }

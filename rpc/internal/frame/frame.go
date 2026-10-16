@@ -68,6 +68,21 @@ var (
 	ErrMalformed   = errors.New("frame: malformed payload")
 )
 
+// TooLargeError reports a frame whose payload exceeds the limit for its
+// type. It matches ErrTooLarge.
+type TooLargeError struct {
+	Type  Type
+	Size  uint64
+	Limit uint64
+}
+
+func (e *TooLargeError) Error() string {
+	return fmt.Sprintf("frame: %v payload of %d bytes exceeds the limit of %d", e.Type, e.Size, e.Limit)
+}
+
+// Is makes errors.Is(err, ErrTooLarge) true.
+func (e *TooLargeError) Is(target error) bool { return target == ErrTooLarge }
+
 // Frame is a decoded frame.
 type Frame struct {
 	Type    Type
@@ -106,7 +121,7 @@ func (r *Reader) ReadFrame() (Frame, error) {
 		return Frame{}, unexpectedEOF(err)
 	}
 	if n > limit {
-		return Frame{}, fmt.Errorf("%w: %v payload of %d bytes, limit %d", ErrTooLarge, t, n, limit)
+		return Frame{}, &TooLargeError{Type: t, Size: n, Limit: limit}
 	}
 	payload := make([]byte, n)
 	if _, err := io.ReadFull(r.br, payload); err != nil {
