@@ -24,14 +24,8 @@ func listen(t *testing.T, tlsConf *tls.Config, conf *quic.Config) *rpcquic.Liste
 	return l
 }
 
-func newTransport(t *testing.T, maxStreams int) (transport.Listener, transport.Dialer) {
-	serverTLS, clientTLS := transporttest.TLSConfigs(t)
-	l := listen(t, serverTLS, &quic.Config{MaxIncomingStreams: int64(maxStreams)})
-	return l, &rpcquic.Dialer{Addr: l.Addr().String(), TLSConfig: clientTLS}
-}
-
 func TestConformance(t *testing.T) {
-	transporttest.Run(t, newTransport)
+	transporttest.Run(t, transporttest.QUIC)
 }
 
 func TestTLSConfigRequired(t *testing.T) {
