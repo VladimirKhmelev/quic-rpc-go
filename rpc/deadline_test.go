@@ -213,6 +213,43 @@ func TestManyCallsLeaveNothingBehind(t *testing.T) {
 	})
 }
 
+// After cancel() returns, RecvMsg must not hand out a message, even one that
+// already arrived (TST-3): the reset runs asynchronously in an AfterFunc.
+func TestNoMessageAfterCancel(t *testing.T) {
+	impl := &testServer{bidi: func(stream bidiServer) error {
+		if err := stream.Send(wrapperspb.String("too late")); err != nil {
+			return err
+		}
+		<-stream.Context().Done()
+		return stream.Context().Err()
+	}}
+	t.Run("read ahead by Header", func(t *testing.T) {
+		inBubble(t, impl, func(t *testing.T, e *env) {
+			ctx, cancel := context.WithCancel(t.Context())
+			s := mustBidi(t)(e.bidi(ctx))
+			// Without HEADERS from the server, Header reads the message ahead.
+			if header, err := s.Header(); header != nil || err != nil {
+				t.Fatalf("Header: %v, %v; want nil, nil", map[string][]string(header), err)
+			}
+			cancel()
+			if m, err := s.Recv(); status.Code(err) != codes.Canceled {
+				t.Fatalf("Recv after cancel: %v, %v; want Canceled", m, err)
+			}
+		})
+	})
+	t.Run("buffered by the transport", func(t *testing.T) {
+		inBubble(t, impl, func(t *testing.T, e *env) {
+			ctx, cancel := context.WithCancel(t.Context())
+			s := mustBidi(t)(e.bidi(ctx))
+			synctest.Wait() // the message is in the client's receive buffer
+			cancel()
+			if m, err := s.Recv(); status.Code(err) != codes.Canceled {
+				t.Fatalf("Recv after cancel: %v, %v; want Canceled", m, err)
+			}
+		})
+	})
+}
+
 // TestDeadlineAndCancelRealTime repeats the deadline and cancellation
 // scenarios above with real time, so they also run on QUIC.
 func TestDeadlineAndCancelRealTime(t *testing.T) {

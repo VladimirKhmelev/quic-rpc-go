@@ -78,6 +78,13 @@ func (cs *clientStream) RecvMsg(m any) error {
 	if cs.finalErr != nil {
 		return cs.finalErr
 	}
+	// No message is handed out once the call was canceled, even one that
+	// already arrived: the reset runs in an AfterFunc goroutine and may not
+	// have discarded it yet, and Header may have read it ahead. grpc-go has
+	// no such check; TST-3 requires it.
+	if err := cs.ctx.Err(); err != nil {
+		return cs.fail(status.FromContextError(err), transport.Cancelled)
+	}
 	payload, err := cs.recv.Next()
 	if err != nil {
 		return cs.end(err)

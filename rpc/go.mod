@@ -5,6 +5,7 @@ go 1.26.8
 require (
 	github.com/quic-go/quic-go v0.63.0
 	google.golang.org/protobuf v1.36.12
+	pgregory.net/rapid v1.3.0
 )
 
 require (

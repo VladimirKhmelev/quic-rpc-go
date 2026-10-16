@@ -2,6 +2,9 @@ MODULES  := rpc
 # An execution count, not a duration: when a duration runs out, Go's fuzz
 # coordinator can fail the run with a spurious "context deadline exceeded".
 FUZZTIME ?= 1000000x
+# Targets that start a server and a client per input are about ten times
+# slower; they get fewer runs.
+FUZZ_OVERRIDES ?= FuzzServerStream=100000x FuzzClientResponse=100000x
 
 PROTOC_GEN_GO := $(CURDIR)/bin/protoc-gen-go
 # Relative to rpc/.
@@ -29,7 +32,7 @@ tidy-check:
 	@for m in $(MODULES); do echo "==> tidy $$m"; (cd $$m && go mod tidy -diff) || exit 1; done
 
 fuzz:
-	@./scripts/fuzz.sh $(FUZZTIME) $(MODULES)
+	@FUZZ_OVERRIDES="$(FUZZ_OVERRIDES)" ./scripts/fuzz.sh $(FUZZTIME) $(MODULES)
 
 # protoc-gen-go is built from the protobuf version pinned in rpc/go.mod.
 $(PROTOC_GEN_GO): rpc/go.mod rpc/go.sum

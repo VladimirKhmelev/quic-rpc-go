@@ -25,7 +25,9 @@ type ClientStream interface {
 	// RecvMsg reports the status.
 	SendMsg(m any) error
 	// RecvMsg receives a message into m. It returns io.EOF when the call
-	// ended with OK and a status error otherwise.
+	// ended with OK and a status error otherwise. Once the call's context is
+	// canceled it returns Canceled or DeadlineExceeded, even if a message
+	// had already arrived.
 	RecvMsg(m any) error
 }
 
