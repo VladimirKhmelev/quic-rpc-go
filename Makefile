@@ -9,8 +9,12 @@ FUZZ_OVERRIDES ?= FuzzServerStream=100000x FuzzClientResponse=100000x
 PROTOC_GEN_GO := $(CURDIR)/bin/protoc-gen-go
 # Relative to rpc/.
 RPC_PROTOS := internal/frame/framepb/frame.proto
+# Test input of protoc-gen-rpcquic, kept as a descriptor set so that its
+# tests run without protoc.
+PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
+PLUGIN_PROTOS   := echo/v1/echo.proto
 
-.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check
+.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors
 
 all: check
 
@@ -40,10 +44,18 @@ $(PROTOC_GEN_GO): rpc/go.mod rpc/go.sum
 
 proto: $(PROTOC_GEN_GO)
 	cd rpc && protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=. --go_opt=paths=source_relative $(RPC_PROTOS)
+	cd $(PLUGIN_TESTDATA) && protoc --include_source_info --descriptor_set_out=echo.binpb $(PLUGIN_PROTOS)
 
-proto-check: $(PROTOC_GEN_GO)
+proto-check: proto-check-go proto-check-descriptors
+
+proto-check-go: $(PROTOC_GEN_GO)
 	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
 	cd rpc && protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=$$tmp --go_opt=paths=source_relative $(RPC_PROTOS) && \
 	for f in $$(cd $$tmp && find . -name '*.pb.go'); do \
 		diff -u "$$f" "$$tmp/$$f" || { echo "generated code is stale, run make proto"; exit 1; }; \
 	done
+
+proto-check-descriptors:
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	cd $(PLUGIN_TESTDATA) && protoc --include_source_info --descriptor_set_out=$$tmp/echo.binpb $(PLUGIN_PROTOS) && \
+	cmp -s echo.binpb $$tmp/echo.binpb || { echo "$(PLUGIN_TESTDATA)/echo.binpb is stale, run make proto"; exit 1; }
