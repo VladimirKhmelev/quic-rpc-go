@@ -19,6 +19,19 @@ RPC для Go поверх нативных потоков QUIC ([quic-go](https
 4. Основные эксперименты.
 5. Анализ и отчёт.
 
+## Генерация кода
+
+Клиенты и серверы генерирует плагин `protoc-gen-rpcquic`. Код ложится в подпакет `<пакет>quic` (например, `chatv1quic`) с теми же именами, что у protoc-gen-go-grpc, поэтому оба генератора можно запускать на одном `.proto`.
+
+```sh
+go install github.com/VladimirKhmelev/quic-rpc-go/rpc/cmd/protoc-gen-rpcquic@latest
+protoc --go_out=. --go_opt=paths=source_relative \
+       --rpcquic_out=. --rpcquic_opt=paths=source_relative \
+       chat/v1/chat.proto
+```
+
+Пока поддерживаются unary- и bidi-методы.
+
 ## Документация
 
 - [Протокол](docs/protocol.md): кадры, порядок кадров в вызове, коды ошибок, соответствие gRPC.
