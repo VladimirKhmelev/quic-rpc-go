@@ -1,0 +1,33 @@
+// Test input for protoc-gen-rpcquic. Regenerate echo.binpb with make proto
+// and the golden files with: go test ./cmd/protoc-gen-rpcquic -update
+
+syntax = "proto3";
+
+// Package test.echo.v1 holds the services the generator is tested on.
+package test.echo.v1;
+
+option go_package = "example.com/gen/echo/v1;echov1";
+
+message Msg {
+  string text = 1;
+}
+
+// Echo answers with what it gets.
+service Echo {
+  // Unary echoes one message.
+  rpc Unary(Msg) returns (Msg);
+  // Bidi echoes every message of the stream.
+  rpc Bidi(stream Msg) returns (stream Msg);
+  // Old is kept for older clients.
+  rpc Old(Msg) returns (Msg) {
+    option deprecated = true;
+  }
+}
+
+// Legacy has two streaming methods: its stream indices start from 0 again.
+service Legacy {
+  option deprecated = true;
+
+  rpc First(stream Msg) returns (stream Msg);
+  rpc Second(stream Msg) returns (stream Msg);
+}
