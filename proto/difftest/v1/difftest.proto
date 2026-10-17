@@ -1,0 +1,67 @@
+// Service of the differential tests: the same scenarios run through grpc-go
+// and through quic-rpc-go, and their outcomes must match.
+syntax = "proto3";
+
+package difftest.v1;
+
+option go_package = "github.com/VladimirKhmelev/quic-rpc-go/internal/gen/difftest/v1;difftestv1";
+
+// DiffTest answers as the scenario of the request says.
+service DiffTest {
+  // Unary answers with one response or with the status of the scenario.
+  rpc Unary(Request) returns (Response);
+  // Bidi takes the scenario from its first request.
+  rpc Bidi(stream Request) returns (stream Response);
+}
+
+message Request {
+  // How the server answers. In Bidi only the first request's scenario counts.
+  Scenario scenario = 1;
+  int32 seq = 2;
+  bytes payload = 3;
+}
+
+message Response {
+  int32 seq = 1;
+  bytes payload = 2;
+}
+
+// Scenario tells the server how to answer a call.
+message Scenario {
+  // Status the call ends with: a code numbered as in gRPC (0 is OK) and its
+  // message.
+  uint32 code = 1;
+  string message = 2;
+  // Details attached to a status that is not OK.
+  repeated Detail details = 3;
+  // Metadata the server sets as header and as trailer.
+  repeated Metadata header = 4;
+  repeated Metadata trailer = 5;
+  // Send the header right away instead of with the first response.
+  bool send_header_first = 6;
+  // Copy the incoming metadata whose keys start with "x-" into the header.
+  bool echo_metadata = 7;
+  // Bidi: answer every request with its seq and payload until the client's
+  // FIN, then end with the status.
+  bool echo = 8;
+  // Bidi without echo: read the requests up to the client's FIN first.
+  bool read_all_first = 9;
+  // Bidi without echo: how many responses to send before the status.
+  int32 responses = 10;
+  // Size of the payload of each response; 0 echoes the request's payload in
+  // Unary.
+  int32 payload_size = 11;
+  // Block until the call's context is done and return its error, for the
+  // deadline and cancellation scenarios.
+  bool wait_for_cancel = 12;
+}
+
+message Detail {
+  string text = 1;
+}
+
+message Metadata {
+  string key = 1;
+  // Bytes, because keys ending in "-bin" carry binary values.
+  bytes value = 2;
+}
