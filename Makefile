@@ -7,6 +7,8 @@ FUZZTIME ?= 1000000x
 FUZZ_OVERRIDES ?= FuzzServerStream=100000x FuzzClientResponse=100000x
 # Flags for go test besides -count=1; CI also runs the tests with -cpu=1.
 TESTFLAGS ?= -race
+# Network profile of testbed-shell, from testbed/scenarios/profiles.yaml.
+PROFILE ?= none
 
 PROTOC_GEN_GO      := $(CURDIR)/bin/protoc-gen-go
 PROTOC_GEN_GO_GRPC := $(CURDIR)/bin/protoc-gen-go-grpc
@@ -22,7 +24,7 @@ ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
 PLUGIN_PROTOS   := echo/v1/echo.proto
 
-.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors
+.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell
 
 all: check
 
@@ -45,6 +47,10 @@ tidy-check:
 
 fuzz:
 	@FUZZ_OVERRIDES="$(FUZZ_OVERRIDES)" ./scripts/fuzz.sh $(FUZZTIME) $(MODULES)
+
+# A shell inside the testbed; the testbed is gone when the shell exits.
+testbed-shell:
+	go run ./testbed/cmd/testbed shell -profile $(PROFILE)
 
 # Generators: protoc-gen-go from the protobuf version pinned in rpc/go.mod,
 # protoc-gen-go-grpc from the tool directive of go.mod, protoc-gen-rpcquic
