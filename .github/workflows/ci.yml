@@ -43,6 +43,19 @@ jobs:
           cache-dependency-path: "**/go.mod"
       - run: make vet test
 
+  # With one CPU, goroutine interleavings that are rare on several CPUs
+  # become the usual ones. The race detector reschedules goroutines and
+  # hides some of them, so this job runs without it.
+  test-1cpu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.mod"
+      - run: make test TESTFLAGS=-cpu=1
+
   fuzz:
     runs-on: ubuntu-24.04
     steps:

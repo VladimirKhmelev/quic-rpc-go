@@ -78,7 +78,11 @@ type Conn interface {
 	// CloseWithError closes the connection; the peer sees code and reason
 	// in a remote *ConnError.
 	CloseWithError(code ErrorCode, reason string) error
-	// Context is canceled when the connection closes; its cause is a *ConnError.
+	// Context is canceled when the connection closes; its cause is a
+	// *ConnError. It is canceled before CloseWithError returns and before
+	// any method of the connection or of its streams returns a *ConnError,
+	// so a caller that checks Context never reuses a connection it has
+	// seen closed.
 	Context() context.Context
 }
 

@@ -112,41 +112,65 @@ func configureQUIC(c *quic.Config, client bool) *quic.Config {
 	return c
 }
 
+// conn keeps its own context so that it can cancel it as soon as anything
+// reports the connection closed. quic-go v0.63.0 fails stream operations
+// once it shuts the streams down (Conn.handleCloseError, connection.go:2258)
+// but cancels its own context only when Conn.run returns
+// (connection.go:564), and newConn forwards that cancellation from yet
+// another goroutine.
 type conn struct {
-	qc  *quic.Conn
-	ctx context.Context
+	qc     *quic.Conn
+	ctx    context.Context
+	cancel context.CancelCauseFunc
 }
 
 func newConn(qc *quic.Conn) *conn {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	qctx := qc.Context()
 	context.AfterFunc(qctx, func() { cancel(connError(context.Cause(qctx))) })
-	return &conn{qc: qc, ctx: ctx}
+	return &conn{qc: qc, ctx: ctx, cancel: cancel}
 }
 
 func (c *conn) OpenStream(ctx context.Context) (transport.Stream, error) {
 	qs, err := c.qc.OpenStreamSync(ctx)
 	if err != nil {
-		return nil, convertError(err)
+		return nil, c.convert(err)
 	}
-	return &stream{qs: qs}, nil
+	return &stream{c: c, qs: qs}, nil
 }
 
 func (c *conn) AcceptStream(ctx context.Context) (transport.Stream, error) {
 	qs, err := c.qc.AcceptStream(ctx)
 	if err != nil {
-		return nil, convertError(err)
+		return nil, c.convert(err)
 	}
-	return &stream{qs: qs}, nil
+	return &stream{c: c, qs: qs}, nil
 }
 
+// CloseWithError returns once quic-go has canceled its context
+// (Conn.CloseWithError waits for it), so the cause is known here.
 func (c *conn) CloseWithError(code transport.ErrorCode, reason string) error {
-	return convertError(c.qc.CloseWithError(quic.ApplicationErrorCode(code), reason))
+	err := c.convert(c.qc.CloseWithError(quic.ApplicationErrorCode(code), reason))
+	if qctx := c.qc.Context(); qctx.Err() != nil {
+		c.cancel(connError(context.Cause(qctx)))
+	}
+	return err
 }
 
 func (c *conn) Context() context.Context { return c.ctx }
 
+// convert is convertError that also cancels the connection context when err
+// reports the connection closed.
+func (c *conn) convert(err error) error {
+	err = convertError(err)
+	if ce, ok := errors.AsType[*transport.ConnError](err); ok {
+		c.cancel(ce)
+	}
+	return err
+}
+
 type stream struct {
+	c  *conn
 	qs *quic.Stream
 
 	ctxOnce sync.Once
@@ -155,15 +179,15 @@ type stream struct {
 
 func (s *stream) Read(b []byte) (int, error) {
 	n, err := s.qs.Read(b)
-	return n, convertError(err)
+	return n, s.c.convert(err)
 }
 
 func (s *stream) Write(b []byte) (int, error) {
 	n, err := s.qs.Write(b)
-	return n, convertError(err)
+	return n, s.c.convert(err)
 }
 
-func (s *stream) Close() error { return convertError(s.qs.Close()) }
+func (s *stream) Close() error { return s.c.convert(s.qs.Close()) }
 
 func (s *stream) CancelWrite(code transport.ErrorCode) {
 	s.qs.CancelWrite(quic.StreamErrorCode(code))

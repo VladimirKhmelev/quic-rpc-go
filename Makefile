@@ -5,6 +5,8 @@ FUZZTIME ?= 1000000x
 # Targets that start a server and a client per input are about ten times
 # slower; they get fewer runs.
 FUZZ_OVERRIDES ?= FuzzServerStream=100000x FuzzClientResponse=100000x
+# Flags for go test besides -count=1; CI also runs the tests with -cpu=1.
+TESTFLAGS ?= -race
 
 PROTOC_GEN_GO      := $(CURDIR)/bin/protoc-gen-go
 PROTOC_GEN_GO_GRPC := $(CURDIR)/bin/protoc-gen-go-grpc
@@ -27,7 +29,7 @@ all: check
 check: fmt-check tidy-check proto-check vet lint test
 
 test:
-	@for m in $(MODULES); do echo "==> test $$m"; (cd $$m && go test -race -count=1 ./...) || exit 1; done
+	@for m in $(MODULES); do echo "==> test $$m"; (cd $$m && go test -count=1 $(TESTFLAGS) ./...) || exit 1; done
 
 vet:
 	@for m in $(MODULES); do echo "==> vet $$m"; (cd $$m && go vet ./...) || exit 1; done

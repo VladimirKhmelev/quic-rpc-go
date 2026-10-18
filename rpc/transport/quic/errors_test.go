@@ -63,6 +63,24 @@ func TestConvertError(t *testing.T) {
 	}
 }
 
+// TestConvertCancelsOnConnError checks the error path without a network:
+// the conformance suite sees it only when it wins a race with quic-go.
+func TestConvertCancelsOnConnError(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	c := &conn{ctx: ctx, cancel: cancel}
+
+	for _, err := range []error{io.EOF, context.Canceled, &quic.StreamError{ErrorCode: 1, Remote: true}} {
+		_ = c.convert(err)
+		if ctx.Err() != nil {
+			t.Fatalf("convert(%v) canceled the connection context", err)
+		}
+	}
+	got := c.convert(&quic.ApplicationError{ErrorCode: 0, Remote: true, ErrorMessage: "bye"})
+	if cause := context.Cause(ctx); cause == nil || cause != got { //nolint:errorlint // the very value returned
+		t.Fatalf("after a connection error the context cause is %v, want %v", cause, got)
+	}
+}
+
 func TestStreamCause(t *testing.T) {
 	tests := []struct {
 		name string

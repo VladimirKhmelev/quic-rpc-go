@@ -42,6 +42,7 @@ func Run(t *testing.T, newTransport Factory) {
 		{"ServerCannotOpenStreams", testServerCannotOpenStreams},
 		{"AcceptStreamHonorsContext", testAcceptStreamHonorsContext},
 		{"CloseWithError", testCloseWithError},
+		{"ConnErrorCancelsContext", testConnErrorCancelsContext},
 		{"ListenerClose", testListenerClose},
 	}
 	for _, tt := range tests {
@@ -430,6 +431,58 @@ func testCloseWithError(t *testing.T, f Factory) {
 	_, err = io.ReadAll(ss)
 	wantClosed(err, true, "server Read after peer close")
 	wantClosed(waitDone(t, ss, "server stream"), true, "server stream context cause")
+}
+
+// testConnErrorCancelsContext checks that the connection context is done by
+// the time anything reports the connection closed: rpc.ClientConn checks it
+// to decide whether to dial again.
+func testConnErrorCancelsContext(t *testing.T, f Factory) {
+	closeConn := func(t *testing.T, c transport.Conn) {
+		t.Helper()
+		if err := c.CloseWithError(transport.NoError, "bye"); err != nil {
+			t.Fatalf("CloseWithError: %v", err)
+		}
+	}
+	wantDone := func(t *testing.T, c transport.Conn, err error, what string) {
+		t.Helper()
+		if _, ok := errors.AsType[*transport.ConnError](err); !ok {
+			t.Fatalf("%s: got %v, want a *transport.ConnError", what, err)
+		}
+		if c.Context().Err() == nil {
+			t.Fatalf("%s returned %v while the connection context is not done", what, err)
+		}
+	}
+
+	t.Run("CloseWithError", func(t *testing.T) {
+		client, _ := Pair(t, f, 10)
+		closeConn(t, client)
+		if client.Context().Err() == nil {
+			t.Fatal("connection context is not done after CloseWithError returned")
+		}
+	})
+	t.Run("OpenStream", func(t *testing.T) {
+		client, server := Pair(t, f, 1)
+		open(t, client)
+		closeConn(t, server)
+		// Blocks on the stream limit until the close reaches the client.
+		_, err := client.OpenStream(Context(t))
+		wantDone(t, client, err, "OpenStream")
+	})
+	t.Run("AcceptStream", func(t *testing.T) {
+		client, server := Pair(t, f, 10)
+		closeConn(t, client)
+		_, err := server.AcceptStream(Context(t))
+		wantDone(t, server, err, "AcceptStream")
+	})
+	t.Run("Read", func(t *testing.T) {
+		client, server := Pair(t, f, 10)
+		cs := open(t, client)
+		write(t, cs, []byte("x"))
+		accept(t, server)
+		closeConn(t, server)
+		_, err := io.ReadAll(cs)
+		wantDone(t, client, err, "Read")
+	})
 }
 
 func testListenerClose(t *testing.T, f Factory) {
