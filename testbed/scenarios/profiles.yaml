@@ -1,0 +1,51 @@
+# Network profiles of the testbed (NET-7), applied by name:
+#   go run ./testbed/cmd/testbed shell -profile interregion
+#
+# rtt is split evenly between the two directions; jitter, loss and reorder
+# apply to each direction as given (docs/testbed.md). Fields:
+#   rtt, jitter   durations: 150ms, 500us
+#   loss, reorder percentages: 0.5%
+#   loss_burst    mean length of a loss burst in packets; omitted means
+#                 independent losses
+#   rate          bottleneck bandwidth: 100Mbit; omitted means unlimited
+#   queue_bdp     bottleneck queue in bandwidth-delay products (rate × rtt)
+#
+# The values are preliminary and will be refined after the pilot (phase 2).
+profiles:
+  - name: datacenter
+    description: Один дата-центр
+    rtt: 1ms
+
+  - name: nearby-zones
+    description: Соседние зоны
+    rtt: 5ms
+    jitter: 1ms
+    loss: 0.1%
+
+  - name: interregion
+    description: Межрегион
+    rtt: 150ms
+    jitter: 10ms
+    loss: 0.5%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: congested
+    description: Перегруженный канал, раздутая очередь (bufferbloat)
+    rtt: 50ms
+    jitter: 5ms
+    loss: 1%
+    rate: 10Mbit
+    queue_bdp: 4
+
+  # The 2 s outage every 60 s of this profile is not described here yet: it
+  # is a schedule rather than a qdisc setting and comes with the load runner.
+  - name: degraded
+    description: Деградация
+    rtt: 100ms
+    jitter: 20ms
+    loss: 2%
+    loss_burst: 4
+    reorder: 1%
+    rate: 10Mbit
+    queue_bdp: 1
