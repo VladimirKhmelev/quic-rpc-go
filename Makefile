@@ -1,4 +1,4 @@
-MODULES  := rpc
+MODULES  := . rpc
 # An execution count, not a duration: when a duration runs out, Go's fuzz
 # coordinator can fail the run with a spurious "context deadline exceeded".
 FUZZTIME ?= 1000000x
@@ -6,9 +6,15 @@ FUZZTIME ?= 1000000x
 # slower; they get fewer runs.
 FUZZ_OVERRIDES ?= FuzzServerStream=100000x FuzzClientResponse=100000x
 
-PROTOC_GEN_GO := $(CURDIR)/bin/protoc-gen-go
+PROTOC_GEN_GO      := $(CURDIR)/bin/protoc-gen-go
+PROTOC_GEN_GO_GRPC := $(CURDIR)/bin/protoc-gen-go-grpc
+PROTOC_GEN_RPCQUIC := $(CURDIR)/bin/protoc-gen-rpcquic
+GENERATORS         := $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC) $(PROTOC_GEN_RPCQUIC)
 # Relative to rpc/.
 RPC_PROTOS := internal/frame/framepb/frame.proto
+# Relative to proto/; the code goes to internal/gen of the root module.
+ROOT_PROTOS := difftest/v1/difftest.proto
+ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 # Test input of protoc-gen-rpcquic, kept as a descriptor set so that its
 # tests run without protoc.
 PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
@@ -38,21 +44,41 @@ tidy-check:
 fuzz:
 	@FUZZ_OVERRIDES="$(FUZZ_OVERRIDES)" ./scripts/fuzz.sh $(FUZZTIME) $(MODULES)
 
-# protoc-gen-go is built from the protobuf version pinned in rpc/go.mod.
+# Generators: protoc-gen-go from the protobuf version pinned in rpc/go.mod,
+# protoc-gen-go-grpc from the tool directive of go.mod, protoc-gen-rpcquic
+# from this repository.
 $(PROTOC_GEN_GO): rpc/go.mod rpc/go.sum
-	cd rpc && go build -o $(PROTOC_GEN_GO) google.golang.org/protobuf/cmd/protoc-gen-go
+	cd rpc && go build -o $@ google.golang.org/protobuf/cmd/protoc-gen-go
 
-proto: $(PROTOC_GEN_GO)
-	cd rpc && protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=. --go_opt=paths=source_relative $(RPC_PROTOS)
+$(PROTOC_GEN_GO_GRPC): go.mod go.sum
+	go build -o $@ google.golang.org/grpc/cmd/protoc-gen-go-grpc
+
+$(PROTOC_GEN_RPCQUIC): rpc/go.mod rpc/go.sum $(wildcard rpc/cmd/protoc-gen-rpcquic/*.go)
+	cd rpc && go build -o $@ ./cmd/protoc-gen-rpcquic
+
+# protoc_rpc and protoc_root write the generated code under directory $(1).
+protoc_rpc = cd rpc && protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=$(1) --go_opt=paths=source_relative $(RPC_PROTOS)
+protoc_root = protoc -I proto \
+	--plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=$(1) --go_opt=module=$(ROOT_MODULE) \
+	--plugin=protoc-gen-go-grpc=$(PROTOC_GEN_GO_GRPC) --go-grpc_out=$(1) --go-grpc_opt=module=$(ROOT_MODULE) \
+	--plugin=protoc-gen-rpcquic=$(PROTOC_GEN_RPCQUIC) --rpcquic_out=$(1) --rpcquic_opt=module=$(ROOT_MODULE) \
+	$(ROOT_PROTOS)
+
+proto: $(GENERATORS)
+	$(call protoc_rpc,.)
+	$(call protoc_root,.)
 	cd $(PLUGIN_TESTDATA) && protoc --include_source_info --descriptor_set_out=echo.binpb $(PLUGIN_PROTOS)
 
 proto-check: proto-check-go proto-check-descriptors
 
-proto-check-go: $(PROTOC_GEN_GO)
-	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
-	cd rpc && protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=$$tmp --go_opt=paths=source_relative $(RPC_PROTOS) && \
-	for f in $$(cd $$tmp && find . -name '*.pb.go'); do \
-		diff -u "$$f" "$$tmp/$$f" || { echo "generated code is stale, run make proto"; exit 1; }; \
+proto-check-go: $(GENERATORS)
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && mkdir "$$tmp/rpc" "$$tmp/root" && \
+	($(call protoc_rpc,$$tmp/rpc)) && $(call protoc_root,$$tmp/root) && \
+	for pair in "$$tmp/rpc:rpc" "$$tmp/root:."; do \
+		gen=$${pair%%:*}; dst=$${pair#*:}; \
+		for f in $$(cd "$$gen" && find . -name '*.go'); do \
+			diff -u "$$dst/$$f" "$$gen/$$f" || { echo "generated code is stale, run make proto"; exit 1; }; \
+		done; \
 	done
 
 proto-check-descriptors:
