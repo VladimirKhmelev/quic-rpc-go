@@ -35,12 +35,21 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
+    env:
+      # The testbed tests must run here, not skip.
+      QRPC_TESTBED_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache-dependency-path: "**/go.mod"
+      # The testbed builds network namespaces as an unprivileged user,
+      # which Ubuntu 24.04 forbids by default.
+      - name: Prepare the testbed
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          command -v ethtool >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ethtool; }
       - run: make vet test
 
   # With one CPU, goroutine interleavings that are rare on several CPUs
@@ -48,12 +57,18 @@ jobs:
   # hides some of them, so this job runs without it.
   test-1cpu:
     runs-on: ubuntu-24.04
+    env:
+      QRPC_TESTBED_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache-dependency-path: "**/go.mod"
+      - name: Prepare the testbed
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          command -v ethtool >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ethtool; }
       - run: make test TESTFLAGS=-cpu=1
 
   fuzz:
