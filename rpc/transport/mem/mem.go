@@ -216,10 +216,12 @@ func (c *conn) CloseWithError(code transport.ErrorCode, reason string) error {
 		c.s.closedBy = c.side
 		c.s.code = code
 		c.s.reason = reason
-		close(c.s.done)
+		// Contexts first: whatever wakes up on done and reports the
+		// connection closed must find them canceled (see transport.Conn).
 		for side, end := range c.s.ends {
 			end.cancel(c.s.errFor(side))
 		}
+		close(c.s.done)
 	})
 	return nil
 }
