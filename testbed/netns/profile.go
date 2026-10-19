@@ -36,6 +36,15 @@ type Profile struct {
 	// QueueBDP is the bottleneck queue in bandwidth-delay products (Rate ×
 	// RTT); it is required with Rate.
 	QueueBDP float64 `yaml:"queue_bdp"`
+	// Outage cuts the link now and then; see Stand.Outages.
+	Outage Outage `yaml:"outage"`
+}
+
+// Outage cuts the link in both directions for Duration, starting every
+// Every.
+type Outage struct {
+	Duration time.Duration `yaml:"duration"`
+	Every    time.Duration `yaml:"every"`
 }
 
 // None is the profile without impairments.
@@ -149,6 +158,9 @@ func (p Profile) Validate() error {
 		}
 	} else {
 		check(p.QueueBDP == 0, "queue_bdp %v without rate", p.QueueBDP)
+	}
+	if o := p.Outage; o != (Outage{}) {
+		check(o.Duration > 0 && o.Duration < o.Every, "outage of %v every %v: want a duration above zero and below the period", o.Duration, o.Every)
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("profile %q: %w", p.Name, err)

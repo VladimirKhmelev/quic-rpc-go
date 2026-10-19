@@ -9,6 +9,8 @@
 #                 independent losses
 #   rate          bottleneck bandwidth: 100Mbit; omitted means unlimited
 #   queue_bdp     bottleneck queue in bandwidth-delay products (rate × rtt)
+#   outage        the link is cut for duration, starting every period:
+#                 {duration: 2s, every: 60s}; testbed run keeps the schedule
 #
 # The values are preliminary and will be refined after the pilot (phase 2).
 profiles:
@@ -38,8 +40,6 @@ profiles:
     rate: 10Mbit
     queue_bdp: 4
 
-  # The 2 s outage every 60 s of this profile is not described here yet: it
-  # is a schedule rather than a qdisc setting and comes with the load runner.
   - name: degraded
     description: Деградация
     rtt: 100ms
@@ -49,3 +49,4 @@ profiles:
     reorder: 1%
     rate: 10Mbit
     queue_bdp: 1
+    outage: {duration: 2s, every: 60s}
