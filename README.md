@@ -46,6 +46,7 @@ make check   # gofmt, go mod tidy, сгенерированный код, go vet
 make fuzz    # fuzz-тесты: по 1 млн запусков на цель, сквозные цели вызовов — по 100 тыс.
 make proto   # перегенерировать код из .proto (нужен protoc 3.21.12)
 make testbed-shell PROFILE=interregion   # шелл внутри стенда с профилем сети
+make testbed-check   # самопроверка стенда на всех профилях (нужен iperf3)
 ```
 
 Тесты стенда создают network namespace без root. Ubuntu 24.04 по умолчанию это запрещает, как разрешить — в [описании стенда](docs/testbed.md#запуск). Без этого тесты стенда пропускаются.

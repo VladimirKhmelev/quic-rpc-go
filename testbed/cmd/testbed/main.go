@@ -8,21 +8,25 @@
 //
 //	testbed run [-profile NAME] [-v] -- COMMAND [ARG...]
 //	testbed shell [-profile NAME] [-v]
+//	testbed check [-profile NAME | -all] [-json FILE] [-v]
 //	testbed apply [-v] NAME
 //	testbed show NAME
 //	testbed profiles
 //
 // run builds the testbed, runs COMMAND in it and removes the testbed when
 // COMMAND exits; inside, commands reach a namespace with "ip netns exec
-// client ...". shell does the same with an interactive shell. apply changes
-// the profile of the testbed it is run in. show prints the commands that
-// apply a profile, and profiles lists the profiles. Every command takes
+// client ...". shell does the same with an interactive shell. check builds
+// the testbed and measures it against each profile (NET-4); it exits with
+// 1 if a value is out of tolerance or a measurement is unreliable. apply
+// changes the profile of the testbed it is run in. show prints the commands
+// that apply a profile, and profiles lists the profiles. Every command takes
 // -profiles FILE to read profiles from FILE instead of the bundled
 // testbed/scenarios/profiles.yaml; "none" means no impairments.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,11 +37,13 @@ import (
 
 	"github.com/VladimirKhmelev/quic-rpc-go/testbed/netns"
 	"github.com/VladimirKhmelev/quic-rpc-go/testbed/scenarios"
+	"github.com/VladimirKhmelev/quic-rpc-go/testbed/selfcheck"
 )
 
 const usage = `usage:
   testbed run [-profile NAME] [-v] -- COMMAND [ARG...]
   testbed shell [-profile NAME] [-v]
+  testbed check [-profile NAME | -all] [-json FILE] [-v]
   testbed apply [-v] NAME
   testbed show NAME
   testbed profiles
@@ -64,12 +70,19 @@ func run(args []string) (int, error) {
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	profilesFile := fs.String("profiles", "", "read profiles from `FILE` instead of the bundled ones")
-	var profile *string
-	var verbose *bool
+	var (
+		profile, jsonFile *string
+		verbose, all      *bool
+	)
 	switch args[0] {
 	case "run", "shell":
 		profile = fs.String("profile", netns.None.Name, "apply profile `NAME`")
 		verbose = fs.Bool("v", false, "print the commands that build the testbed")
+	case "check":
+		profile = fs.String("profile", "", "check profile `NAME`")
+		all = fs.Bool("all", false, "check every profile")
+		jsonFile = fs.String("json", "", "also write the reports to `FILE` as JSON")
+		verbose = fs.Bool("v", false, "print the progress")
 	case "apply":
 		verbose = fs.Bool("v", false, "print the commands that change the testbed")
 	case "show", "profiles":
@@ -102,6 +115,21 @@ func run(args []string) (int, error) {
 			return 1, err
 		}
 		return runInTestbed(ctx, p, *verbose, command)
+	case "check":
+		var targets []netns.Profile
+		switch {
+		case *all && *profile == "" && fs.NArg() == 0:
+			targets = profiles
+		case !*all && *profile != "" && fs.NArg() == 0:
+			p, err := netns.Lookup(profiles, *profile)
+			if err != nil {
+				return 1, err
+			}
+			targets = []netns.Profile{p}
+		default:
+			return 2, fmt.Errorf("%w: check needs -profile NAME or -all", errUsage)
+		}
+		return check(ctx, targets, *jsonFile, *verbose)
 	case "apply":
 		p, err := oneProfile(fs, profiles)
 		if err != nil {
@@ -147,6 +175,48 @@ func runInTestbed(ctx context.Context, p netns.Profile, verbose bool, command []
 		err = downErr
 	}
 	return code, err
+}
+
+// check runs the self-check (NET-4) of each profile and fails if any is out
+// of tolerance or could not be measured reliably.
+func check(ctx context.Context, targets []netns.Profile, jsonFile string, verbose bool) (int, error) {
+	if err := netns.Enter(); err != nil {
+		return 1, err
+	}
+	s := stand(false)
+	if err := s.Up(ctx, netns.None); err != nil {
+		return 1, err
+	}
+	opts := selfcheck.Options{}
+	if verbose {
+		opts.Log = os.Stderr
+	}
+	var reports []*selfcheck.Report
+	code := 0
+	for _, p := range targets {
+		if err := s.Apply(ctx, p); err != nil {
+			return 1, err
+		}
+		r, err := selfcheck.Run(ctx, p, opts)
+		if err != nil {
+			return 1, fmt.Errorf("profile %s: %w", p.Name, err)
+		}
+		fmt.Print(r)
+		if !r.OK() {
+			code = 1
+		}
+		reports = append(reports, r)
+	}
+	if jsonFile != "" {
+		data, err := json.MarshalIndent(reports, "", "  ")
+		if err != nil {
+			return 1, err
+		}
+		if err := os.WriteFile(jsonFile, append(data, '\n'), 0o644); err != nil { //nolint:gosec // a report, not a secret
+			return 1, err
+		}
+	}
+	return code, s.Down(ctx)
 }
 
 func stand(verbose bool) *netns.Stand {

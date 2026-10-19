@@ -5,6 +5,8 @@ package netns
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"regexp"
 	"slices"
@@ -110,14 +112,19 @@ func TestRTT(t *testing.T) {
 	}
 }
 
-func TestOffloadsOff(t *testing.T) {
+func TestOffloads(t *testing.T) {
 	up(t, None)
 	for _, l := range Links {
 		for _, e := range []End{l.A, l.B} {
 			out := output(t, e.NS, "ethtool", "-k", e.Dev)
-			for _, feature := range []string{"tcp-segmentation-offload", "generic-segmentation-offload", "generic-receive-offload"} {
-				if !strings.Contains(out, feature+": off") {
-					t.Errorf("%s %s: %s is not off", e.NS, e.Dev, feature)
+			want := map[string]string{
+				"tcp-segmentation-offload":     "off",
+				"generic-segmentation-offload": "off",
+				"generic-receive-offload":      map[bool]string{true: "off", false: "on"}[e.NS == Router],
+			}
+			for feature, state := range want {
+				if !strings.Contains(out, feature+": "+state) {
+					t.Errorf("%s %s: %s is not %s", e.NS, e.Dev, feature, state)
 				}
 			}
 		}
@@ -126,7 +133,10 @@ func TestOffloadsOff(t *testing.T) {
 
 func TestApplyReplacesImpairments(t *testing.T) {
 	s := up(t, Profile{Name: "slow", RTT: 150 * time.Millisecond, Rate: 100e6, QueueBDP: 1})
-	qdiscs := func() string { return output(t, Router, "tc", "qdisc", "show", "dev", "toserver") }
+	qdiscs := func() string {
+		return output(t, Router, "tc", "qdisc", "show", "dev", "fromclient") +
+			output(t, Router, "tc", "qdisc", "show", "dev", "toserver")
+	}
 	if q := qdiscs(); !strings.Contains(q, "tbf") || !strings.Contains(q, "delay 75ms") {
 		t.Fatalf("after Up:\n%s", q)
 	}
@@ -135,7 +145,7 @@ func TestApplyReplacesImpairments(t *testing.T) {
 		if err := s.Apply(t.Context(), near); err != nil {
 			t.Fatal(err)
 		}
-		if q := qdiscs(); strings.Contains(q, "tbf") || !strings.Contains(q, "delay 5ms") {
+		if q := qdiscs(); strings.Contains(q, "tbf") || !strings.Contains(q, "delay 5ms") || !strings.Contains(q, "noqueue") {
 			t.Fatalf("after Apply:\n%s", q)
 		}
 	}
@@ -156,12 +166,108 @@ func TestBundledProfilesApply(t *testing.T) {
 		if err := s.Apply(t.Context(), p); err != nil {
 			t.Fatalf("profile %s: %v", p.Name, err)
 		}
-		for _, dev := range impairedDevs {
-			q := output(t, Router, "tc", "qdisc", "show", "dev", dev)
+		for _, path := range Paths {
+			q := output(t, Router, "tc", "qdisc", "show", "dev", path.Ifb) + output(t, Router, "tc", "qdisc", "show", "dev", path.Out)
 			if strings.Contains(q, "tbf") != (p.Rate > 0) || !strings.Contains(q, "netem") {
-				t.Errorf("profile %s, %s:\n%s", p.Name, dev, q)
+				t.Errorf("profile %s, %s:\n%s", p.Name, path.Name, q)
 			}
 		}
+	}
+}
+
+// TestDo opens a socket in each end namespace and sends a datagram from one
+// to the other through the router.
+func TestDo(t *testing.T) {
+	up(t, None)
+	listen := func(ns string, addr netip.Addr) *net.UDPConn {
+		t.Helper()
+		var conn *net.UDPConn
+		err := Do(ns, func() (err error) {
+			conn, err = net.ListenUDP("udp", net.UDPAddrFromAddrPort(netip.AddrPortFrom(addr, 0)))
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+		return conn
+	}
+	client, server := listen(Client, ClientAddr), listen(Server, ServerAddr)
+	if _, err := client.WriteTo([]byte("hello"), server.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 16)
+	n, from, err := server.ReadFromUDPAddrPort(buf)
+	if err != nil || string(buf[:n]) != "hello" || from.Addr() != ClientAddr {
+		t.Fatalf("server read %q from %v, %v", buf[:n], from, err)
+	}
+
+	// The caller stays outside: here only lo exists.
+	ifaces, err := net.Interfaces()
+	if err != nil || len(ifaces) != 1 {
+		t.Fatalf("interfaces after Do: %v, %v", ifaces, err)
+	}
+	if err := Do("missing", func() error { return nil }); err == nil {
+		t.Fatal("Do in a missing namespace succeeded")
+	}
+}
+
+var qdiscStats = regexp.MustCompile(`Sent \d+ bytes (\d+) pkt \(dropped (\d+), overlimits \d+ requeues (\d+)\)`)
+
+// stats returns the packets sent and dropped by the root qdisc of dev and
+// its requeues, which netem counts for the packets it reorders.
+func stats(t *testing.T, dev string) (sent, dropped, requeues int) {
+	t.Helper()
+	out := output(t, Router, "tc", "-s", "qdisc", "show", "dev", dev)
+	m := qdiscStats.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no statistics for %s:\n%s", dev, out)
+	}
+	n := func(s string) int { v, _ := strconv.Atoi(s); return v }
+	return n(m[1]), n(m[2]), n(m[3])
+}
+
+// TestReorderedPacketsPassTheBottleneck sends a burst through a profile
+// that reorders and has a bottleneck: every packet netem lets out, the
+// reordered ones too, must then pass the tbf, sent or dropped.
+func TestReorderedPacketsPassTheBottleneck(t *testing.T) {
+	p := Profile{Name: "reorder", RTT: 10 * time.Millisecond, Reorder: 20, Rate: 10e6, QueueBDP: 1}
+	up(t, p)
+	dst := netip.AddrPortFrom(ServerAddr, 9)
+	var sink, conn *net.UDPConn
+	err := Do(Server, func() (err error) {
+		sink, err = net.ListenUDP("udp", net.UDPAddrFromAddrPort(dst))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sink.Close() }()
+	err = Do(Client, func() (err error) {
+		conn, err = net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(dst))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	for range 2000 {
+		if _, err := conn.Write(make([]byte, 100)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(p.RTT + 200*time.Millisecond) // the queues drain
+	released, _, reordered := stats(t, Paths[0].Ifb)
+	sent, dropped, _ := stats(t, Paths[0].Out)
+	if reordered == 0 {
+		t.Fatalf("netem reordered nothing of %d packets", released)
+	}
+	if sent+dropped != released {
+		t.Fatalf("netem let out %d packets (%d reordered), tbf took %d: %d sent, %d dropped",
+			released, reordered, sent+dropped, sent, dropped)
 	}
 }
 

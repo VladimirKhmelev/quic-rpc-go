@@ -49,7 +49,8 @@ jobs:
       - name: Prepare the testbed
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          command -v ethtool >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ethtool; }
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ethtool iperf3
       - run: make vet test
 
   # With one CPU, goroutine interleavings that are rare on several CPUs
@@ -68,7 +69,8 @@ jobs:
       - name: Prepare the testbed
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          command -v ethtool >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ethtool; }
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ethtool iperf3
       - run: make test TESTFLAGS=-cpu=1
 
   fuzz:
