@@ -32,9 +32,8 @@ type End struct {
 // Link is a veth pair.
 type Link struct{ A, B End }
 
-// Links is the topology: client — router — server. Direction client →
-// server leaves the router through toserver, the opposite one through
-// toclient; the impairments are applied there and only there (NET-1).
+// Links is the topology: client — router — server. The impairments are
+// applied in the router and only there (NET-1), see Paths.
 var Links = []Link{
 	{
 		A: End{NS: Client, Dev: "eth0", Addr: netip.MustParsePrefix("10.0.1.2/24"), MAC: "02:00:00:00:01:02"},
@@ -46,8 +45,22 @@ var Links = []Link{
 	},
 }
 
-// impairedDevs are the router interfaces that carry the impairments.
-var impairedDevs = []string{"toserver", "toclient"}
+// Path is one direction through the router. Packets arrive on In and are
+// redirected to the ifb device Ifb, whose netem delays, drops and reorders
+// them; then they are routed out through Out, whose tbf is the bottleneck.
+//
+// netem and tbf sit on different devices because netem hands out the
+// packets it reorders straight from its own queue, past any qdisc below
+// it: under a tbf child they would skip the bottleneck and its queue.
+type Path struct {
+	Name, In, Ifb, Out string
+}
+
+// Paths are the two directions.
+var Paths = []Path{
+	{Name: "client→server", In: "toclient", Ifb: "fromclient", Out: "toserver"},
+	{Name: "server→client", In: "toserver", Ifb: "fromserver", Out: "toclient"},
+}
 
 // Cmd is a command run in namespace NS, or outside the namespaces if NS is
 // empty.
@@ -91,9 +104,7 @@ func UpCommands(p Profile) []Cmd {
 			"peer", "name", l.B.Dev, "address", l.B.MAC, "netns", l.B.NS}})
 		for _, e := range []struct{ self, peer End }{{l.A, l.B}, {l.B, l.A}} {
 			cmds = append(cmds,
-				// Offloads off: with them a veth hands over packets of up
-				// to 64 KB, and netem drops or delays each as one packet.
-				in(e.self.NS, "ethtool", "-K", e.self.Dev, "tso", "off", "gso", "off", "gro", "off"),
+				in(e.self.NS, append([]string{"ethtool", "-K", e.self.Dev}, offloads(e.self.NS)...)...),
 				in(e.self.NS, "ip", "addr", "add", e.self.Addr.String(), "dev", e.self.Dev),
 				// Static neighbors: ARP would go through the impairments
 				// and stall the first packets.
@@ -107,20 +118,44 @@ func UpCommands(p Profile) []Cmd {
 		in(Client, "ip", "route", "add", "default", "via", Links[0].B.Addr.Addr().String()),
 		in(Server, "ip", "route", "add", "default", "via", Links[1].A.Addr.Addr().String()),
 	)
-	for _, dev := range impairedDevs {
-		cmds = append(cmds, qdiscCommands(dev, p)...)
+	for _, path := range Paths {
+		cmds = append(cmds,
+			in(Router, "ip", "link", "add", "name", path.Ifb, "type", "ifb"),
+			in(Router, "ip", "link", "set", path.Ifb, "up"),
+			in(Router, "tc", "qdisc", "add", "dev", path.In, "handle", "ffff:", "ingress"),
+			in(Router, "tc", "filter", "add", "dev", path.In, "parent", "ffff:",
+				"matchall", "action", "mirred", "egress", "redirect", "dev", path.Ifb),
+		)
 	}
-	return cmds
+	return append(cmds, ApplyCommands(p)...)
 }
 
-// ApplyCommands replace the impairments of the running testbed with p.
-// Packets pass unimpaired for the moment between removing the old qdiscs
-// and adding the new ones.
+// offloads returns the ethtool features of an interface in namespace ns.
+//
+// TSO and GSO are off everywhere, and GRO on the router: with them a veth
+// hands over packets of up to 64 KB, and netem would drop or delay each as
+// one packet.
+//
+// GRO is on at the client and the server, after all impairments. It makes
+// a veth receive through NAPI, a single ring that keeps packets in order.
+// Without it a veth queues each packet on the backlog of the CPU that sent
+// it, and the packets netem releases, some from its timer and some from new
+// arrivals on another CPU, are taken in parallel: a plain 20 ms delay
+// reordered about 0.2% of them.
+func offloads(ns string) []string {
+	gro := "on"
+	if ns == Router {
+		gro = "off"
+	}
+	return []string{"tso", "off", "gso", "off", "gro", gro}
+}
+
+// ApplyCommands set the impairments of p; on a running testbed they replace
+// the old ones in place.
 func ApplyCommands(p Profile) []Cmd {
 	var cmds []Cmd
-	for _, dev := range impairedDevs {
-		cmds = append(cmds, in(Router, "tc", "qdisc", "del", "dev", dev, "root"))
-		cmds = append(cmds, qdiscCommands(dev, p)...)
+	for _, path := range Paths {
+		cmds = append(cmds, qdiscCommands(path, p)...)
 	}
 	return cmds
 }
@@ -136,7 +171,7 @@ func DownCommands() []Cmd {
 
 // netemLimit is the netem queue in packets. It holds every packet waiting
 // for its delay, so it is far above the packets in flight of any profile;
-// the bottleneck queue is the tbf below it.
+// the bottleneck queue is the tbf on the way out.
 const netemLimit = 100000
 
 // netemRate is set together with jitter. With a rate, netem never sends a
@@ -144,12 +179,12 @@ const netemLimit = 100000
 // packets (NET-2); the rate itself is too high to limit anything.
 const netemRate = "100gbit"
 
-// qdiscCommands put netem for delay, jitter, loss and reordering at the
-// root of dev and, if the profile has a rate, tbf below it for the
-// bottleneck: delayed packets wait in netem and do not take the bottleneck
-// queue.
-func qdiscCommands(dev string, p Profile) []Cmd {
-	netem := []string{"tc", "qdisc", "add", "dev", dev, "root", "handle", "1:",
+// qdiscCommands put netem for delay, jitter, loss and reordering on the ifb
+// device of path and the bottleneck tbf, if the profile has a rate, on its
+// way out; without a rate the way out has no queue, as a veth by default.
+// Delayed packets wait in netem and do not take the bottleneck queue.
+func qdiscCommands(path Path, p Profile) []Cmd {
+	netem := []string{"tc", "qdisc", "replace", "dev", path.Ifb, "root", "handle", "1:",
 		"netem", "limit", strconv.Itoa(netemLimit)}
 	if oneWay := p.RTT / 2; oneWay > 0 {
 		netem = append(netem, "delay", micros(oneWay))
@@ -159,7 +194,7 @@ func qdiscCommands(dev string, p Profile) []Cmd {
 	}
 	switch {
 	case p.Loss > 0 && p.LossBurst > 1:
-		good2bad, bad2good := p.gemodel()
+		good2bad, bad2good := p.Gemodel()
 		netem = append(netem, "loss", "gemodel", percent(good2bad), percent(bad2good))
 	case p.Loss > 0:
 		netem = append(netem, "loss", "random", percent(p.Loss))
@@ -170,12 +205,12 @@ func qdiscCommands(dev string, p Profile) []Cmd {
 	if p.Jitter > 0 {
 		netem = append(netem, "rate", netemRate)
 	}
-	cmds := []Cmd{in(Router, netem...)}
+	out := []string{"tc", "qdisc", "replace", "dev", path.Out, "root", "noqueue"}
 	if p.Rate > 0 {
-		cmds = append(cmds, in(Router, "tc", "qdisc", "add", "dev", dev, "parent", "1:1", "handle", "10:",
-			"tbf", "rate", p.Rate.String(), "burst", strconv.FormatUint(tbfBurst(p.Rate), 10), "limit", strconv.Itoa(p.QueueBytes())))
+		out = []string{"tc", "qdisc", "replace", "dev", path.Out, "root", "handle", "10:",
+			"tbf", "rate", p.Rate.String(), "burst", strconv.FormatUint(tbfBurst(p.Rate), 10), "limit", strconv.Itoa(p.QueueBytes())}
 	}
-	return cmds
+	return []Cmd{in(Router, netem...), in(Router, out...)}
 }
 
 // tbfBurst is the token bucket size in bytes: a millisecond at the rate,
