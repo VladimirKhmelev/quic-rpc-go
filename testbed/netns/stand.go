@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -168,15 +169,66 @@ func prepare() error {
 // Stand runs the commands that build and change the testbed. It must be
 // used inside a testbed (see Enter).
 type Stand struct {
+	// TCP is the TCP setup of the end hosts; empty means TCPAligned.
+	TCP TCP
 	// Log, if set, receives every command before it runs.
 	Log io.Writer
 }
 
 // Up builds the topology and applies p.
-func (s *Stand) Up(ctx context.Context, p Profile) error { return s.run(ctx, UpCommands(p)) }
+func (s *Stand) Up(ctx context.Context, p Profile) error {
+	tcp := s.TCP
+	if tcp == "" {
+		tcp = TCPAligned
+	}
+	if _, err := ParseTCP(string(tcp)); err != nil {
+		return err
+	}
+	return s.run(ctx, UpCommands(p, tcp))
+}
 
 // Apply replaces the impairments with those of p.
 func (s *Stand) Apply(ctx context.Context, p Profile) error { return s.run(ctx, ApplyCommands(p)) }
+
+// Outages cuts the link as p.Outage says until ctx ends: an outage of
+// p.Outage.Duration starts every p.Outage.Every, the first one a period
+// after the call. If ctx ends during an outage, the impairments of p are
+// brought back. Without an outage in p it returns at once.
+func (s *Stand) Outages(ctx context.Context, p Profile) error {
+	o := p.Outage
+	if o.Every == 0 {
+		return nil
+	}
+	sleep := func(until time.Time) bool {
+		t := time.NewTimer(time.Until(until))
+		defer t.Stop()
+		select {
+		case <-t.C:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	for next := time.Now().Add(o.Every); ; next = next.Add(o.Every) {
+		if !sleep(next) {
+			return nil
+		}
+		if err := s.run(ctx, OutageCommands(p, true)); err != nil {
+			return s.endOutage(p, err)
+		}
+		if !sleep(next.Add(o.Duration)) {
+			return s.endOutage(p, nil)
+		}
+		if err := s.run(ctx, OutageCommands(p, false)); err != nil {
+			return s.endOutage(p, err)
+		}
+	}
+}
+
+// endOutage brings the impairments of p back, even after ctx has ended.
+func (s *Stand) endOutage(p Profile, err error) error {
+	return errors.Join(err, s.run(context.Background(), OutageCommands(p, false)))
+}
 
 // Down removes the testbed. It is optional: the testbed also disappears
 // when the process that built it exits.

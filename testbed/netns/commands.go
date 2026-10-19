@@ -1,6 +1,7 @@
 package netns
 
 import (
+	"fmt"
 	"math"
 	"net/netip"
 	"strconv"
@@ -79,8 +80,35 @@ func (c Cmd) String() string {
 
 func in(ns string, args ...string) Cmd { return Cmd{NS: ns, Args: args} }
 
-// UpCommands builds the topology and applies p.
-func UpCommands(p Profile) []Cmd {
+// TCP is the TCP setup of the client and the server (NET-6).
+type TCP string
+
+const (
+	// TCPAligned brings Linux TCP close to quic-go: an initial window of 32
+	// packets, pacing by fq and no slow start after an idle period. The
+	// congestion control stays CUBIC.
+	TCPAligned TCP = "aligned"
+	// TCPDefault keeps the Linux defaults: an initial window of 10 packets,
+	// no pacing and slow start after idle. It shows how much of a result
+	// the defaults alone explain.
+	TCPDefault TCP = "default"
+)
+
+// ParseTCP returns the TCP setup named s.
+func ParseTCP(s string) (TCP, error) {
+	switch t := TCP(s); t {
+	case TCPAligned, TCPDefault:
+		return t, nil
+	}
+	return "", fmt.Errorf("TCP setup %q: want %s or %s", s, TCPAligned, TCPDefault)
+}
+
+// tcpInitialWindow is the initial congestion and receive window of the
+// aligned setup, as in quic-go (internal/congestion/cubic_sender.go).
+const tcpInitialWindow = "32"
+
+// UpCommands builds the topology with the TCP setup tcp and applies p.
+func UpCommands(p Profile, tcp TCP) []Cmd {
 	var cmds []Cmd
 	for _, ns := range []string{Client, Router, Server} {
 		cmds = append(cmds, Cmd{Args: []string{"ip", "netns", "add", ns}})
@@ -114,10 +142,17 @@ func UpCommands(p Profile) []Cmd {
 			)
 		}
 	}
-	cmds = append(cmds,
-		in(Client, "ip", "route", "add", "default", "via", Links[0].B.Addr.Addr().String()),
-		in(Server, "ip", "route", "add", "default", "via", Links[1].A.Addr.Addr().String()),
-	)
+	for _, host := range []struct {
+		end End
+		gw  netip.Addr
+	}{{Links[0].A, Links[0].B.Addr.Addr()}, {Links[1].B, Links[1].A.Addr.Addr()}} {
+		route := []string{"ip", "route", "add", "default", "via", host.gw.String()}
+		if tcp == TCPAligned {
+			route = append(route, "initcwnd", tcpInitialWindow, "initrwnd", tcpInitialWindow)
+		}
+		cmds = append(cmds, in(host.end.NS, route...))
+		cmds = append(cmds, tcpCommands(host.end, tcp)...)
+	}
 	for _, path := range Paths {
 		cmds = append(cmds,
 			in(Router, "ip", "link", "add", "name", path.Ifb, "type", "ifb"),
@@ -128,6 +163,35 @@ func UpCommands(p Profile) []Cmd {
 		)
 	}
 	return append(cmds, ApplyCommands(p)...)
+}
+
+// tcpCommands set up TCP on the end host e. The sysctls are set in both
+// setups: a new namespace takes some of them from the host, and the
+// testbed must not depend on the machine.
+func tcpCommands(e End, tcp TCP) []Cmd {
+	idle := "1"
+	if tcp == TCPAligned {
+		// quic-go keeps its window after an idle period; Linux starts over
+		// from the initial window once the connection was idle for an RTO.
+		idle = "0"
+	}
+	cmds := []Cmd{in(e.NS, "sysctl", "-q", "-w",
+		"net.ipv4.tcp_congestion_control=cubic",
+		// No metrics cache: a new connection would otherwise start from the
+		// ssthresh and RTT of the last one to the same address, and runs
+		// would depend on each other.
+		"net.ipv4.tcp_no_metrics_save=1",
+		"net.ipv4.tcp_rmem=4096 131072 33554432",
+		"net.ipv4.tcp_wmem=4096 16384 4194304",
+		"net.ipv4.tcp_slow_start_after_idle="+idle)}
+	if tcp == TCPAligned {
+		// Pacing, as quic-go does. The limits are high enough that fq never
+		// drops a packet at the sender: a local loss would reach the TCP
+		// stack and quic-go directly (NET-1). fq queues QUIC packets too.
+		cmds = append(cmds, in(e.NS, "tc", "qdisc", "replace", "dev", e.Dev, "root",
+			"fq", "limit", "100000", "flow_limit", "100000"))
+	}
+	return cmds
 }
 
 // offloads returns the ethtool features of an interface in namespace ns.
@@ -184,6 +248,31 @@ const netemRate = "100gbit"
 // way out; without a rate the way out has no queue, as a veth by default.
 // Delayed packets wait in netem and do not take the bottleneck queue.
 func qdiscCommands(path Path, p Profile) []Cmd {
+	out := []string{"tc", "qdisc", "replace", "dev", path.Out, "root", "noqueue"}
+	if p.Rate > 0 {
+		out = []string{"tc", "qdisc", "replace", "dev", path.Out, "root", "handle", "10:",
+			"tbf", "rate", p.Rate.String(), "burst", strconv.FormatUint(tbfBurst(p.Rate), 10), "limit", strconv.Itoa(p.QueueBytes())}
+	}
+	return []Cmd{netemCommand(path, p), in(Router, out...)}
+}
+
+// OutageCommands cut the link in both directions (on) or bring the
+// impairments of p back. During an outage netem drops every new packet;
+// the packets it holds still arrive, as those already on the wire.
+func OutageCommands(p Profile, on bool) []Cmd {
+	var cmds []Cmd
+	for _, path := range Paths {
+		if on {
+			cmds = append(cmds, in(Router, "tc", "qdisc", "replace", "dev", path.Ifb, "root", "handle", "1:",
+				"netem", "limit", strconv.Itoa(netemLimit), "loss", "100%"))
+		} else {
+			cmds = append(cmds, netemCommand(path, p))
+		}
+	}
+	return cmds
+}
+
+func netemCommand(path Path, p Profile) Cmd {
 	netem := []string{"tc", "qdisc", "replace", "dev", path.Ifb, "root", "handle", "1:",
 		"netem", "limit", strconv.Itoa(netemLimit)}
 	if oneWay := p.RTT / 2; oneWay > 0 {
@@ -205,12 +294,7 @@ func qdiscCommands(path Path, p Profile) []Cmd {
 	if p.Jitter > 0 {
 		netem = append(netem, "rate", netemRate)
 	}
-	out := []string{"tc", "qdisc", "replace", "dev", path.Out, "root", "noqueue"}
-	if p.Rate > 0 {
-		out = []string{"tc", "qdisc", "replace", "dev", path.Out, "root", "handle", "10:",
-			"tbf", "rate", p.Rate.String(), "burst", strconv.FormatUint(tbfBurst(p.Rate), 10), "limit", strconv.Itoa(p.QueueBytes())}
-	}
-	return []Cmd{in(Router, netem...), in(Router, out...)}
+	return in(Router, netem...)
 }
 
 // tbfBurst is the token bucket size in bytes: a millisecond at the rate,
