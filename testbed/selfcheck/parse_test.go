@@ -103,7 +103,28 @@ func TestParseIperf(t *testing.T) {
 	if _, _, err := parseIperf([]byte(refused)); !errors.Is(err, errNotListening) {
 		t.Fatalf("refused: %v, want errNotListening", err)
 	}
+	// The setup took two seconds: the empty intervals before the data and
+	// the first one with data do not count.
+	const late = `{"server_output_json": {"intervals": [
+		{"sum": {"start": 0, "end": 1, "bits_per_second": 0}},
+		{"sum": {"start": 1, "end": 2, "bits_per_second": 0}},
+		{"sum": {"start": 2, "end": 3, "bits_per_second": 30000000}},
+		{"sum": {"start": 3, "end": 4, "bits_per_second": 48540000}},
+		{"sum": {"start": 4, "end": 5, "bits_per_second": 48530000}},
+		{"sum": {"start": 5, "end": 6, "bits_per_second": 48550000}},
+		{"sum": {"start": 6, "end": 7, "bits_per_second": 48540000}},
+		{"sum": {"start": 7, "end": 7.04, "bits_per_second": 48000000}},
+		{"sum": {"start": 7.04, "end": 8, "bits_per_second": 0}}]}}`
+	if got, n, err := parseIperf([]byte(late)); err != nil || got != 48540000 || n != 4 {
+		t.Fatalf("late start: %v over %d intervals, %v; want 48540000 over 4", got, n, err)
+	}
 	for name, out := range map[string]string{
+		"no data": `{"server_output_json": {"intervals": [
+			{"sum": {"start": 0, "end": 1, "bits_per_second": 0}},
+			{"sum": {"start": 1, "end": 2, "bits_per_second": 0}},
+			{"sum": {"start": 2, "end": 3, "bits_per_second": 0}},
+			{"sum": {"start": 3, "end": 4, "bits_per_second": 0}},
+			{"sum": {"start": 4, "end": 5, "bits_per_second": 0}}]}}`,
 		"other error":      `{"end": {}, "error": "unable to read from stream socket: Resource temporarily unavailable"}`,
 		"no server output": `{"end": {"sum_received": {"bits_per_second": 1}}}`,
 		"too few intervals": `{"server_output_json": {"intervals": [

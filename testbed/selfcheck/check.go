@@ -25,6 +25,8 @@ type Options struct {
 	// MinPackets is the smallest probe; zero means MinPackets. Only tests
 	// should go below it.
 	MinPackets int
+	// MinPings raises the number of pings above what the profile needs.
+	MinPings int
 	// Log, if set, receives progress messages.
 	Log io.Writer
 
@@ -48,6 +50,7 @@ func Run(ctx context.Context, p netns.Profile, opts Options) (*Report, error) {
 		}
 	}
 	plan := NewPlan(p, opts.MaxPacketRate, opts.MinPackets)
+	plan.Pings = max(plan.Pings, opts.MinPings)
 	r := &Report{Profile: p.Name, Plan: plan}
 
 	if p.RTT > 0 {
@@ -70,10 +73,12 @@ func Run(ctx context.Context, p netns.Profile, opts Options) (*Report, error) {
 }
 
 func checkRTT(ctx context.Context, p netns.Profile, plan Plan, r *Report) error {
-	// Enough pings that plan.Pings replies come back despite the losses
-	// in both directions.
+	// Enough pings that plan.Pings replies come back despite the losses in
+	// both directions, even on a testbed that loses up to about twice as
+	// much as the profile says: such a testbed must fail the loss check,
+	// not make the RTT measurement invalid.
 	keep := (1 - p.Loss.Fraction()) * (1 - p.Loss.Fraction())
-	count := int(math.Ceil(float64(plan.Pings)/keep*1.1)) + 5
+	count := int(math.Ceil(float64(plan.Pings)/keep*1.5)) + 10
 	timeout := int(math.Ceil((3*p.RTT + time.Second).Seconds()))
 	out, err := netns.Command(ctx, netns.Client, "ping", "-n", "-c", strconv.Itoa(count),
 		"-i", strconv.FormatFloat(plan.PingInterval.Seconds(), 'f', -1, 64),

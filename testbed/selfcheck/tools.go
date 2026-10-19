@@ -34,22 +34,27 @@ var notListening = regexp.MustCompile(`unable to (connect|send control message)`
 // goodput needs.
 const minIntervals = 3
 
+type iperfInterval struct {
+	Sum struct {
+		Start         float64 `json:"start"`
+		End           float64 `json:"end"`
+		BitsPerSecond float64 `json:"bits_per_second"`
+	} `json:"sum"`
+}
+
 // parseIperf returns the goodput in bits per second from the JSON output
 // of an iperf3 UDP client run with --get-server-output against a server
-// with -J: the median over the receiver's one-second intervals, without the
-// first one, while the bottleneck queue fills, and the partial last one.
-// The totals of iperf3 are not used: the receiver times the test by control
-// messages that the impairments delay, which skews them by up to 10%.
+// with -J: the median over the receiver's whole one-second intervals while
+// data flowed, without the first one, while the bottleneck queue fills, and
+// the last one. The receiver counts its intervals from the control
+// connection, so a test whose setup was slow under losses starts with
+// empty intervals; those are not the bottleneck's. The totals of iperf3
+// are not used either: the receiver times the test by control messages
+// that the impairments delay, which skews them by up to 10%.
 func parseIperf(out []byte) (bps float64, intervals int, err error) {
 	var r struct {
 		Server *struct {
-			Intervals []struct {
-				Sum struct {
-					Start         float64 `json:"start"`
-					End           float64 `json:"end"`
-					BitsPerSecond float64 `json:"bits_per_second"`
-				} `json:"sum"`
-			} `json:"intervals"`
+			Intervals []iperfInterval `json:"intervals"`
 		} `json:"server_output_json"`
 		Error string `json:"error"`
 	}
@@ -65,14 +70,20 @@ func parseIperf(out []byte) (bps float64, intervals int, err error) {
 	case r.Server == nil:
 		return 0, 0, errors.New("iperf3 output has no server_output_json")
 	}
+	ivs := r.Server.Intervals
+	first := slices.IndexFunc(ivs, func(iv iperfInterval) bool { return iv.Sum.BitsPerSecond > 0 })
+	last := len(ivs) - 1
+	for last >= 0 && ivs[last].Sum.BitsPerSecond == 0 {
+		last--
+	}
 	var rates []float64
-	for _, iv := range r.Server.Intervals {
-		if s := iv.Sum; s.Start >= 1 && s.End-s.Start >= 0.9 {
+	for i := first + 1; first >= 0 && i < last; i++ {
+		if s := ivs[i].Sum; s.End-s.Start >= 0.9 {
 			rates = append(rates, s.BitsPerSecond)
 		}
 	}
 	if len(rates) < minIntervals {
-		return 0, 0, fmt.Errorf("iperf3 reported %d whole intervals after the first second, want %d", len(rates), minIntervals)
+		return 0, 0, fmt.Errorf("iperf3 reported %d whole intervals of data inside the test, want %d", len(rates), minIntervals)
 	}
 	slices.Sort(rates)
 	return rates[len(rates)/2], len(rates), nil
