@@ -24,7 +24,7 @@ ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
 PLUGIN_PROTOS   := echo/v1/echo.proto
 
-.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check
+.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore
 
 all: check
 
@@ -55,6 +55,13 @@ testbed-shell:
 # The self-check of every profile (NET-4), about 2.5 minutes; needs iperf3.
 testbed-check:
 	go run ./testbed/cmd/testbed check -all -v
+
+# Tune the machine for a series (NET-5) and put it back; run with sudo.
+host-setup:
+	testbed/env/host-setup.sh
+
+host-restore:
+	testbed/env/host-setup.sh --restore
 
 # Generators: protoc-gen-go from the protobuf version pinned in rpc/go.mod,
 # protoc-gen-go-grpc from the tool directive of go.mod, protoc-gen-rpcquic
