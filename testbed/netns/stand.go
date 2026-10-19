@@ -11,8 +11,11 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // envState tells a process where it runs: unset outside a testbed,
@@ -192,6 +195,43 @@ func (s *Stand) run(ctx context.Context, cmds []Cmd) error {
 		}
 	}
 	return nil
+}
+
+// Do calls fn on an OS thread switched to namespace ns. Sockets that fn
+// opens stay in ns and can be used from any goroutine afterwards; files
+// under /proc/thread-self/net show ns.
+func Do(ns string, fn func() error) error {
+	target, err := os.Open(filepath.Join(netnsDir, ns)) //nolint:gosec // a namespace in the directory of ip netns
+	if err != nil {
+		return fmt.Errorf("netns: %w", err)
+	}
+	defer func() { _ = target.Close() }()
+	done := make(chan error, 1)
+	// A fresh goroutine: if the thread cannot switch back, it stays locked
+	// and ends with this goroutine instead of running other code in ns.
+	go func() {
+		runtime.LockOSThread()
+		self, err := os.Open("/proc/thread-self/ns/net")
+		if err != nil {
+			runtime.UnlockOSThread()
+			done <- fmt.Errorf("netns: %w", err)
+			return
+		}
+		defer func() { _ = self.Close() }()
+		if err := unix.Setns(int(target.Fd()), unix.CLONE_NEWNET); err != nil {
+			runtime.UnlockOSThread()
+			done <- fmt.Errorf("netns: enter %s: %w", ns, err)
+			return
+		}
+		fnErr := fn()
+		if err := unix.Setns(int(self.Fd()), unix.CLONE_NEWNET); err != nil {
+			done <- errors.Join(fnErr, fmt.Errorf("netns: leave %s: %w", ns, err))
+			return
+		}
+		runtime.UnlockOSThread()
+		done <- fnErr
+	}()
+	return <-done
 }
 
 // Command returns a command that runs in namespace ns, or outside the

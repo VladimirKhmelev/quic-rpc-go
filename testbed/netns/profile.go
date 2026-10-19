@@ -102,12 +102,12 @@ func (p Profile) BDP() float64 { return float64(p.Rate) / 8 * p.RTT.Seconds() }
 // without a rate.
 func (p Profile) QueueBytes() int { return int(math.Round(p.QueueBDP * p.BDP())) }
 
-// gemodel returns the transition probabilities of netem's Gilbert model
+// Gemodel returns the transition probabilities of netem's Gilbert model
 // that give the profile's loss rate and mean burst length: every packet in
 // the bad state is lost, none in the good one, so a burst lasts 1/r packets
 // on average and the stationary share of the bad state, p/(p+r), is the
 // loss rate.
-func (p Profile) gemodel() (good2bad, bad2good Percent) {
+func (p Profile) Gemodel() (good2bad, bad2good Percent) {
 	loss := p.Loss.Fraction()
 	r := 1 / p.LossBurst
 	return Percent(100 * loss * r / (1 - loss)), Percent(100 * r)
@@ -135,7 +135,7 @@ func (p Profile) Validate() error {
 	check(p.LossBurst == 0 || p.LossBurst >= 1, "loss_burst %v: want 0 or at least 1", p.LossBurst)
 	check(p.LossBurst <= 1 || p.Loss > 0, "loss_burst %v without loss", p.LossBurst)
 	if p.LossBurst > 1 && p.Loss > 0 && p.Loss < 100 {
-		good2bad, _ := p.gemodel()
+		good2bad, _ := p.Gemodel()
 		check(good2bad <= 100, "loss %v cannot come in bursts of %v packets", p.Loss, p.LossBurst)
 	}
 	check(p.Reorder >= 0 && p.Reorder <= 100, "reorder %v: want 0%% to 100%%", p.Reorder)

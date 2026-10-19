@@ -61,7 +61,7 @@ func TestGemodel(t *testing.T) {
 		{Loss: 0.5, LossBurst: 2},
 		{Loss: 10, LossBurst: 1.5},
 	} {
-		good2bad, bad2good := p.gemodel()
+		good2bad, bad2good := p.Gemodel()
 		g, b := good2bad.Fraction(), bad2good.Fraction()
 		if loss := g / (g + b); math.Abs(loss-p.Loss.Fraction()) > 1e-12 {
 			t.Errorf("%+v: stationary loss %v, want %v", p, loss, p.Loss.Fraction())
