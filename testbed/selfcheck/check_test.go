@@ -29,8 +29,10 @@ func TestMain(m *testing.M) {
 }
 
 // fast keeps the probes short with a floor below that of NET-4; for the
-// profiles with losses below the formulas still size the probes.
-var fast = Options{MinPackets: 20000, MaxPacketRate: 10000}
+// profiles with losses below the formulas still size the probes. The extra
+// pings keep a margin for the 0.4 ms that deep C-states add to the RTT on
+// a machine not tuned for a series (docs/methodology.md).
+var fast = Options{MinPackets: 20000, MaxPacketRate: 10000, MinPings: 100}
 
 func upWith(t *testing.T, p netns.Profile) {
 	t.Helper()
@@ -122,5 +124,20 @@ func TestRunFlagsOverloadedProbe(t *testing.T) {
 	}
 	if r.OK() || !strings.Contains(strings.Join(r.Invalid, "\n"), "RcvbufErrors") {
 		t.Fatalf("want an invalid report blaming the socket buffer:\n%v", r)
+	}
+}
+
+// TestProbeWaitsForALaggingReceiver sends a burst to a receiver that reads
+// a packet per millisecond: it must read them all from its socket, long
+// after the drain time since the last packet was sent.
+func TestProbeWaitsForALaggingReceiver(t *testing.T) {
+	upWith(t, netns.None)
+	cfg := probeConfig{packets: 400, rate: 1e6, drain: 50 * time.Millisecond, readDelay: time.Millisecond}
+	arrivals, err := probe(t.Context(), directions[0], cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arrivals) != cfg.packets {
+		t.Fatalf("read %d of %d packets", len(arrivals), cfg.packets)
 	}
 }

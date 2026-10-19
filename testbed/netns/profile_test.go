@@ -20,7 +20,8 @@ func TestBundledProfiles(t *testing.T) {
 		{Name: "nearby-zones", RTT: 5 * time.Millisecond, Jitter: time.Millisecond, Loss: 0.1},
 		{Name: "interregion", RTT: 150 * time.Millisecond, Jitter: 10 * time.Millisecond, Loss: 0.5, Rate: 100e6, QueueBDP: 1},
 		{Name: "congested", RTT: 50 * time.Millisecond, Jitter: 5 * time.Millisecond, Loss: 1, Rate: 10e6, QueueBDP: 4},
-		{Name: "degraded", RTT: 100 * time.Millisecond, Jitter: 20 * time.Millisecond, Loss: 2, LossBurst: 4, Reorder: 1, Rate: 10e6, QueueBDP: 1},
+		{Name: "degraded", RTT: 100 * time.Millisecond, Jitter: 20 * time.Millisecond, Loss: 2, LossBurst: 4, Reorder: 1, Rate: 10e6, QueueBDP: 1,
+			Outage: Outage{Duration: 2 * time.Second, Every: time.Minute}},
 	}
 	if len(profiles) != len(want) {
 		t.Fatalf("got %d profiles, want %d", len(profiles), len(want))
@@ -121,6 +122,8 @@ func TestValidate(t *testing.T) {
 		{"rate without rtt", func(p *Profile) { p.RTT, p.Rate, p.QueueBDP = 0, 10e6, 1 }, "needs rtt"},
 		{"queue without rate", func(p *Profile) { p.QueueBDP = 1 }, "without rate"},
 		{"queue below two frames", func(p *Profile) { p.Rate, p.QueueBDP = 100e3, 0.1 }, "two full frames"},
+		{"outage without a period", func(p *Profile) { p.Outage.Duration = time.Second }, "outage"},
+		{"outage as long as its period", func(p *Profile) { p.Outage = Outage{Duration: time.Second, Every: time.Second} }, "outage"},
 	}
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("base profile: %v", err)

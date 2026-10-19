@@ -271,6 +271,150 @@ func TestReorderedPacketsPassTheBottleneck(t *testing.T) {
 	}
 }
 
+// TestOutages sends a datagram every 5 ms through a profile that cuts the
+// link for 400 ms every second: nothing sent well inside the first outage
+// arrives, almost everything before and after it does.
+func TestOutages(t *testing.T) {
+	p := Profile{Name: "outages", RTT: 10 * time.Millisecond, Outage: Outage{Duration: 400 * time.Millisecond, Every: time.Second}}
+	s := up(t, p)
+	dst := netip.AddrPortFrom(ServerAddr, 9)
+	var sink, conn *net.UDPConn
+	if err := Do(Server, func() (err error) { sink, err = net.ListenUDP("udp", net.UDPAddrFromAddrPort(dst)); return err }); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sink.Close() }()
+	if err := Do(Client, func() (err error) { conn, err = net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(dst)); return err }); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	outages := make(chan error, 1)
+	go func() { outages <- s.Outages(ctx, p) }()
+	const interval, total = 5 * time.Millisecond, 1900 * time.Millisecond
+	sent := int(total / interval)
+	// Read while sending: the socket buffer would not hold them all.
+	got := make([]bool, sent)
+	read := make(chan struct{})
+	go func() {
+		defer close(read)
+		for buf := make([]byte, 2); ; {
+			n, err := sink.Read(buf)
+			if err != nil {
+				return
+			}
+			if i := int(buf[0])<<8 | int(buf[1]); n == 2 && i < sent {
+				got[i] = true
+			}
+		}
+	}()
+	start := time.Now()
+	for i := range sent {
+		time.Sleep(time.Until(start.Add(time.Duration(i) * interval)))
+		if _, err := conn.Write([]byte{byte(i >> 8), byte(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Late datagrams arrive within the delay; reading stops at the deadline.
+	if err := sink.SetReadDeadline(time.Now().Add(p.RTT + 200*time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	<-read
+	share := func(from, to time.Duration) float64 {
+		n := 0
+		for i := int(from / interval); i < int(to/interval); i++ {
+			if got[i] {
+				n++
+			}
+		}
+		return float64(n) / float64((to-from)/interval)
+	}
+	// The first outage lasts from 1000 to 1400 ms, the next starts at 2000.
+	if before, during, after := share(200*time.Millisecond, 900*time.Millisecond),
+		share(1100*time.Millisecond, 1300*time.Millisecond), share(1550*time.Millisecond, 1850*time.Millisecond); before < 0.9 || during > 0 || after < 0.9 {
+		t.Fatalf("arrived: %.0f%% before the outage, %.0f%% during it, %.0f%% after it", 100*before, 100*during, 100*after)
+	}
+	cancel()
+	if err := <-outages; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOutageEndsWithContext cancels the schedule during an outage: the
+// impairments of the profile must come back.
+func TestOutageEndsWithContext(t *testing.T) {
+	p := Profile{Name: "cut", RTT: 10 * time.Millisecond, Outage: Outage{Duration: 50 * time.Millisecond, Every: 100 * time.Millisecond}}
+	s := up(t, p)
+	ctx, cancel := context.WithCancel(t.Context())
+	outages := make(chan error, 1)
+	go func() { outages <- s.Outages(ctx, p) }()
+	// Inside the first outage, between 100 and 150 ms.
+	time.Sleep(125 * time.Millisecond)
+	cancel()
+	if err := <-outages; err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range Paths {
+		if q := output(t, Router, "tc", "qdisc", "show", "dev", path.Ifb); strings.Contains(q, "loss 100%") || !strings.Contains(q, "delay 5ms") {
+			t.Errorf("%s after the schedule ended:\n%s", path.Ifb, q)
+		}
+	}
+}
+
+// TestTCPSetupsTakeEffect checks that the kernel took the TCP setup of the
+// end hosts.
+func TestTCPSetupsTakeEffect(t *testing.T) {
+	if unavailable != nil {
+		t.Skip(unavailable)
+	}
+	for _, tcp := range []TCP{TCPAligned, TCPDefault} {
+		t.Run(string(tcp), func(t *testing.T) {
+			s := &Stand{TCP: tcp}
+			if err := s.Up(t.Context(), None); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Down(context.Background()) }()
+			aligned := tcp == TCPAligned
+			for _, ns := range []string{Client, Server} {
+				route := output(t, ns, "ip", "route", "show", "default")
+				qdisc := output(t, ns, "tc", "qdisc", "show", "dev", "eth0")
+				idle := output(t, ns, "sysctl", "-n", "net.ipv4.tcp_slow_start_after_idle")
+				if strings.Contains(route, "initcwnd 32 initrwnd 32") != aligned ||
+					strings.Contains(qdisc, "qdisc fq ") != aligned ||
+					idle != map[bool]string{true: "0\n", false: "1\n"}[aligned] {
+					t.Errorf("%s:\n%s%s slow start after idle: %s", ns, route, qdisc, idle)
+				}
+				if got := output(t, ns, "sysctl", "-n", "net.ipv4.tcp_no_metrics_save"); got != "1\n" {
+					t.Errorf("%s: tcp_no_metrics_save %q", ns, got)
+				}
+			}
+			// TCP works through the setup: a connection is accepted.
+			var ln net.Listener
+			err := Do(Server, func() (err error) {
+				ln, err = net.Listen("tcp", netip.AddrPortFrom(ServerAddr, 7).String())
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = ln.Close() }()
+			var conn net.Conn
+			err = Do(Client, func() (err error) {
+				conn, err = net.DialTimeout("tcp", ln.Addr().String(), 5*time.Second)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = conn.Close()
+		})
+	}
+	if err := (&Stand{TCP: "tuned"}).Up(t.Context(), None); err == nil {
+		t.Error("Up took an unknown TCP setup")
+	}
+}
+
 func TestDown(t *testing.T) {
 	if unavailable != nil {
 		t.Skip(unavailable)

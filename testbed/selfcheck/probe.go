@@ -44,11 +44,13 @@ var directions = []direction{
 type probeConfig struct {
 	packets int
 	rate    float64 // packets per second
-	// drain is how long the receiver waits for late packets after the
+	// drain is how long the receiver waits for another packet once the
 	// last one is sent.
 	drain time.Duration
 	// rcvbuf overrides readBuffer in tests.
 	rcvbuf int
+	// readDelay slows the receiver down in tests.
+	readDelay time.Duration
 }
 
 // probe sends cfg.packets numbered datagrams through d at cfg.rate and
@@ -81,12 +83,14 @@ func probe(ctx context.Context, d direction, cfg probeConfig) ([]uint32, error) 
 		err      error
 	}
 	received := make(chan result, 1)
+	sent := make(chan struct{})
 	go func() {
-		arrivals, err := receive(rx, run, cfg.packets)
+		arrivals, err := receive(rx, run, cfg, sent)
 		received <- result{arrivals, err}
 	}()
 	sendErr := send(ctx, tx, run, cfg.packets, cfg.rate)
-	// Late packets arrive within the drain time; then the read times out.
+	close(sent)
+	// Wakes a receiver that waits for a packet that will not come.
 	if err := rx.SetReadDeadline(time.Now().Add(cfg.drain)); err != nil {
 		return nil, err
 	}
@@ -127,10 +131,25 @@ func send(ctx context.Context, conn *net.UDPConn, run uint32, n int, rate float6
 	return nil
 }
 
-func receive(conn *net.UDPConn, run uint32, n int) ([]uint32, error) {
+// receive reads the probe until no packet has come for cfg.drain after sent
+// is closed. The deadline moves with every packet: a receiver that lags
+// behind still reads the packets waiting in its socket, while a fixed
+// deadline would cut them off and count them as lost.
+func receive(conn *net.UDPConn, run uint32, cfg probeConfig, sent <-chan struct{}) ([]uint32, error) {
+	n := cfg.packets
 	arrivals := make([]uint32, 0, n)
 	buf := make([]byte, probePayload+1)
 	for {
+		select {
+		case <-sent:
+			if err := conn.SetReadDeadline(time.Now().Add(cfg.drain)); err != nil {
+				return arrivals, err
+			}
+		default:
+		}
+		if cfg.readDelay > 0 {
+			time.Sleep(cfg.readDelay)
+		}
 		size, err := conn.Read(buf)
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			return arrivals, nil

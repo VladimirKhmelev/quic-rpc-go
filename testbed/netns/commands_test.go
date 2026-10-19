@@ -59,7 +59,7 @@ func TestQdiscCommands(t *testing.T) {
 // anywhere and GRO only at the ends; only the router carries impairments,
 // each direction redirected to its ifb device.
 func TestTopology(t *testing.T) {
-	cmds := UpCommands(degraded)
+	cmds := UpCommands(degraded, TCPAligned)
 	has := func(ns, args string) bool {
 		return slices.ContainsFunc(cmds, func(c Cmd) bool { return c.NS == ns && strings.Join(c.Args, " ") == args })
 	}
@@ -80,8 +80,9 @@ func TestTopology(t *testing.T) {
 			t.Errorf("link %s.%s — %s.%s spans two subnets", l.A.NS, l.A.Dev, l.B.NS, l.B.Dev)
 		}
 	}
+	// fq on the end hosts paces TCP (NET-6); netem and tbf only in the router.
 	for _, c := range cmds {
-		if c.Args[0] == "tc" && c.NS != Router {
+		if (slices.Contains(c.Args, "netem") || slices.Contains(c.Args, "tbf")) && c.NS != Router {
 			t.Errorf("impairment outside the router: %v", c)
 		}
 	}
@@ -103,6 +104,64 @@ func TestTopology(t *testing.T) {
 		if !has(ns, "sysctl -q -w net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.default.disable_ipv6=1 net.ipv4.ip_forward="+forward) {
 			t.Errorf("%s does not set ip_forward=%s", ns, forward)
 		}
+	}
+}
+
+func TestOutageCommands(t *testing.T) {
+	var want []Cmd
+	for _, ifb := range []string{"fromclient", "fromserver"} {
+		want = append(want, Cmd{Router, strings.Fields("tc qdisc replace dev " + ifb + " root handle 1: netem limit 100000 loss 100%")})
+	}
+	if got := OutageCommands(degraded, true); !reflect.DeepEqual(got, want) {
+		t.Fatalf("outage:\n%s\nwant:\n%s", join(got), join(want))
+	}
+	// Back to the profile: its netem, and the bottleneck untouched.
+	apply := ApplyCommands(degraded)
+	if got := OutageCommands(degraded, false); !reflect.DeepEqual(got, []Cmd{apply[0], apply[2]}) {
+		t.Fatalf("after the outage:\n%s", join(got))
+	}
+}
+
+// TestTCPSetups checks the TCP commands of the end hosts in both setups.
+func TestTCPSetups(t *testing.T) {
+	tests := []struct {
+		tcp         TCP
+		route, idle string
+		fq          bool
+	}{
+		{TCPAligned, " initcwnd 32 initrwnd 32", "0", true},
+		{TCPDefault, "", "1", false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.tcp), func(t *testing.T) {
+			cmds := UpCommands(None, tt.tcp)
+			has := func(ns, args string) bool {
+				return slices.ContainsFunc(cmds, func(c Cmd) bool { return c.NS == ns && strings.Join(c.Args, " ") == args })
+			}
+			for _, host := range []struct{ ns, gw string }{{Client, "10.0.1.1"}, {Server, "10.0.2.1"}} {
+				for _, want := range []string{
+					"ip route add default via " + host.gw + tt.route,
+					"sysctl -q -w net.ipv4.tcp_congestion_control=cubic net.ipv4.tcp_no_metrics_save=1" +
+						" net.ipv4.tcp_rmem=4096 131072 33554432 net.ipv4.tcp_wmem=4096 16384 4194304" +
+						" net.ipv4.tcp_slow_start_after_idle=" + tt.idle,
+				} {
+					if !has(host.ns, want) {
+						t.Errorf("no %q in %s", want, host.ns)
+					}
+				}
+				if fq := has(host.ns, "tc qdisc replace dev eth0 root fq limit 100000 flow_limit 100000"); fq != tt.fq {
+					t.Errorf("%s: fq %v, want %v", host.ns, fq, tt.fq)
+				}
+			}
+			for _, c := range cmds {
+				if c.NS == Router && slices.Contains(c.Args, "fq") {
+					t.Errorf("fq in the router: %v", c)
+				}
+			}
+		})
+	}
+	if _, err := ParseTCP("tuned"); err == nil {
+		t.Error("ParseTCP took an unknown setup")
 	}
 }
 
