@@ -4,15 +4,25 @@
 //
 //	bench certs -dir DIR [-hosts HOST,...]
 //	bench server -transport quic|grpc-h2 -addr HOST:PORT -certs DIR
+//	bench load -transport quic|grpc-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
+//	           [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N]
 //
 // certs issues a throwaway CA and a server certificate into DIR, for the
 // server and its clients to share. server answers the calls of the
 // benchmark service on addr with the certificate from DIR; it prints
 // "listening on ADDR" once it accepts connections and stops on SIGINT or
 // SIGTERM.
+//
+// load runs the load profile NAME of testbed/scenarios/load.yaml (or of
+// -loads FILE) against the server at addr: -warmup of warm-up, then
+// -duration of measurement, with the seed -seed. It writes a row per call
+// to the CSV file -out (see data/schema.md) and prints a summary; failed
+// calls are rows like any other, so it fails only if it cannot run.
+// -closed N makes the calls closed-loop on N workers, for comparison.
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,15 +30,20 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/bench/common"
+	"github.com/VladimirKhmelev/quic-rpc-go/bench/loadgen"
 	"github.com/VladimirKhmelev/quic-rpc-go/internal/certs"
 	"github.com/VladimirKhmelev/quic-rpc-go/testbed/netns"
+	"github.com/VladimirKhmelev/quic-rpc-go/testbed/scenarios"
 )
 
 const usage = `usage:
   bench certs -dir DIR [-hosts HOST,...]
   bench server -transport quic|grpc-h2 -addr HOST:PORT -certs DIR
+  bench load -transport quic|grpc-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
+             [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N]
 `
 
 func main() {
@@ -80,10 +95,80 @@ func run(args []string) (int, error) {
 			return 2, fmt.Errorf("%w: %w", errUsage, err)
 		}
 		return serve(t, *addr, *certsDir)
+	case "load":
+		var c loadConfig
+		fs.StringVar(&c.transport, "transport", "", "call with `TRANSPORT`: quic or grpc-h2")
+		fs.StringVar(&c.addr, "addr", "", "call the server at `HOST:PORT`")
+		fs.StringVar(&c.certs, "certs", "", "read the certificates from `DIR`")
+		fs.StringVar(&c.profile, "profile", "", "run load profile `NAME`")
+		fs.StringVar(&c.loads, "loads", "", "read load profiles from `FILE` instead of the bundled ones")
+		fs.StringVar(&c.out, "out", "", "write the calls to the CSV `FILE`")
+		fs.Uint64Var(&c.cfg.Seed, "seed", 1, "seed of the schedule")
+		fs.DurationVar(&c.cfg.Warmup, "warmup", 5*time.Second, "warm-up before the measurement")
+		fs.DurationVar(&c.cfg.Measure, "duration", 30*time.Second, "length of the measurement")
+		fs.DurationVar(&c.cfg.Timeout, "timeout", loadgen.DefaultTimeout, "deadline of every call")
+		fs.IntVar(&c.cfg.Closed, "closed", 0, "run closed-loop on `N` workers instead of open-loop")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2, nil // flag has printed the error
+		}
+		if c.addr == "" || c.certs == "" || c.profile == "" || c.out == "" || fs.NArg() != 0 {
+			return 2, fmt.Errorf("%w: load needs -transport, -addr, -certs, -profile and -out", errUsage)
+		}
+		return load(c)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return 2, nil
 	}
+}
+
+// loadConfig is the command line of load.
+type loadConfig struct {
+	transport, addr, certs, profile, loads, out string
+	cfg                                         loadgen.Config
+}
+
+func load(c loadConfig) (int, error) {
+	t, err := common.ParseTransport(c.transport)
+	if err != nil {
+		return 2, fmt.Errorf("%w: %w", errUsage, err)
+	}
+	data := scenarios.Loads
+	if c.loads != "" {
+		if data, err = os.ReadFile(c.loads); err != nil { //nolint:gosec // the file the user named
+			return 1, err
+		}
+	}
+	profiles, err := loadgen.ParseProfiles(data)
+	if err != nil {
+		return 1, err
+	}
+	if c.cfg.Profile, err = loadgen.Lookup(profiles, c.profile); err != nil {
+		return 1, err
+	}
+	b, err := certs.Load(c.certs)
+	if err != nil {
+		return 1, err
+	}
+	p, err := b.Pair()
+	if err != nil {
+		return 1, err
+	}
+	c.cfg.Dial = func() (common.Client, error) { return common.Dial(t, c.addr, p.Client) }
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	records, runErr := loadgen.Run(ctx, c.cfg)
+	if records == nil {
+		return 1, runErr
+	}
+	f, err := os.Create(c.out)
+	if err != nil {
+		return 1, err
+	}
+	if err := errors.Join(loadgen.WriteCSV(f, records), f.Close()); err != nil {
+		return 1, err
+	}
+	fmt.Fprint(os.Stderr, loadgen.FormatSummary(loadgen.Summarize(records)))
+	return 0, runErr
 }
 
 func serve(t common.Transport, addr, certsDir string) (int, error) {
