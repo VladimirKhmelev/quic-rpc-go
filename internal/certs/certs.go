@@ -11,10 +11,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -30,9 +33,39 @@ type Pair struct {
 	Client *tls.Config
 }
 
+// KeyExchange is the TLS key exchange of every variant, set explicitly on
+// both sides: X25519MLKEM768, the default of Go since 1.24. Its
+// ClientHello is larger than 1 KB and takes two packets, which matters for
+// connection setup under losses.
+var KeyExchange = []tls.CurveID{tls.X25519MLKEM768}
+
+// Bundle is an issued CA and server certificate in PEM, as files can carry
+// them from the process that issued them to a server and its clients.
+type Bundle struct {
+	CA   []byte // the CA certificate
+	Cert []byte // the server certificate followed by the CA certificate
+	Key  []byte // the server key, PKCS #8
+}
+
+// Files of a bundle in a directory.
+const (
+	caFile   = "ca.pem"
+	certFile = "server.pem"
+	keyFile  = "server.key"
+)
+
 // New issues a CA and a server certificate valid for hosts: DNS names and
 // IP addresses. At least one host must be a DNS name.
 func New(hosts ...string) (*Pair, error) {
+	b, err := Issue(hosts...)
+	if err != nil {
+		return nil, err
+	}
+	return b.Pair()
+}
+
+// Issue issues a CA and a server certificate valid for hosts, as New does.
+func Issue(hosts ...string) (*Bundle, error) {
 	var dnsNames []string
 	var ips []net.IP
 	for _, h := range hosts {
@@ -87,22 +120,67 @@ func New(hosts ...string) (*Pair, error) {
 	if err != nil {
 		return nil, fmt.Errorf("certs: create server certificate: %w", err)
 	}
-	leaf, err := x509.ParseCertificate(der)
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("certs: parse server certificate: %w", err)
+		return nil, fmt.Errorf("certs: encode server key: %w", err)
 	}
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	return &Bundle{
+		CA:   caPEM,
+		Cert: append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), caPEM...),
+		Key:  pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
+	}, nil
+}
 
+// Pair returns the TLS configurations of the bundle.
+func (b *Bundle) Pair() (*Pair, error) {
+	cert, err := tls.X509KeyPair(b.Cert, b.Key)
+	if err != nil {
+		return nil, fmt.Errorf("certs: %w", err)
+	}
+	if len(cert.Leaf.DNSNames) == 0 {
+		return nil, errors.New("certs: the server certificate has no DNS name")
+	}
 	pool := x509.NewCertPool()
-	pool.AddCert(ca)
+	if !pool.AppendCertsFromPEM(b.CA) {
+		return nil, errors.New("certs: no CA certificate")
+	}
 	return &Pair{
 		Server: &tls.Config{
-			Certificates: []tls.Certificate{{Certificate: [][]byte{der, caDER}, PrivateKey: key, Leaf: leaf}},
-			MinVersion:   tls.VersionTLS13,
+			Certificates:     []tls.Certificate{cert},
+			MinVersion:       tls.VersionTLS13,
+			CurvePreferences: KeyExchange,
 		},
 		Client: &tls.Config{
-			RootCAs:    pool,
-			ServerName: dnsNames[0],
-			MinVersion: tls.VersionTLS13,
+			RootCAs:          pool,
+			ServerName:       cert.Leaf.DNSNames[0],
+			MinVersion:       tls.VersionTLS13,
+			CurvePreferences: KeyExchange,
 		},
 	}, nil
+}
+
+// Write stores the bundle in dir, the key readable by the owner only.
+func (b *Bundle) Write(dir string) error {
+	for name, data := range map[string][]byte{caFile: b.CA, certFile: b.Cert} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil { //nolint:gosec // certificates are public
+			return fmt.Errorf("certs: %w", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, keyFile), b.Key, 0o600); err != nil {
+		return fmt.Errorf("certs: %w", err)
+	}
+	return nil
+}
+
+// Load reads a bundle that Write stored in dir.
+func Load(dir string) (*Bundle, error) {
+	var b Bundle
+	for name, data := range map[string]*[]byte{caFile: &b.CA, certFile: &b.Cert, keyFile: &b.Key} {
+		var err error
+		if *data, err = os.ReadFile(filepath.Join(dir, name)); err != nil { //nolint:gosec // a directory of certificates the caller names
+			return nil, fmt.Errorf("certs: %w", err)
+		}
+	}
+	return &b, nil
 }
