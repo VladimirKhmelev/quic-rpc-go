@@ -1,0 +1,30 @@
+// Service of the load generator (GEN-1): every transport runs the same
+// calls. The server does no work beyond building the answer, so that the
+// measurements show the transport rather than the handler.
+syntax = "proto3";
+
+package bench.v1;
+
+option go_package = "github.com/VladimirKhmelev/quic-rpc-go/internal/gen/bench/v1;benchv1";
+
+service Bench {
+  // Call answers with a payload of the asked size.
+  rpc Call(CallRequest) returns (CallResponse);
+  // Echo answers every message with a copy of it until the client's FIN.
+  rpc Echo(stream EchoMessage) returns (stream EchoMessage);
+}
+
+message CallRequest {
+  bytes payload = 1;
+  // Size of the payload of the response, in bytes.
+  uint32 response_size = 2;
+}
+
+message CallResponse {
+  bytes payload = 1;
+}
+
+message EchoMessage {
+  uint64 seq = 1;
+  bytes payload = 2;
+}

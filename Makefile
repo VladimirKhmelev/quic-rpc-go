@@ -17,7 +17,7 @@ GENERATORS         := $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC) $(PROTOC_GEN_RPCQUI
 # Relative to rpc/.
 RPC_PROTOS := internal/frame/framepb/frame.proto
 # Relative to proto/; the code goes to internal/gen of the root module.
-ROOT_PROTOS := difftest/v1/difftest.proto
+ROOT_PROTOS := difftest/v1/difftest.proto bench/v1/bench.proto
 ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 # Test input of protoc-gen-rpcquic, kept as a descriptor set so that its
 # tests run without protoc.
