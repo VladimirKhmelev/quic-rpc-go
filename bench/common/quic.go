@@ -17,10 +17,10 @@ import (
 	rpcquic "github.com/VladimirKhmelev/quic-rpc-go/rpc/transport/quic"
 )
 
-// quicClient is a client of quic-rpc-go. Its ClientConn dials through it,
+// rpcClient is a client of quic-rpc-go. Its ClientConn dials through it,
 // so that Connect can set up the connection before the first call.
-type quicClient struct {
-	dialer *rpcquic.Dialer
+type rpcClient struct {
+	dialer transport.Dialer
 	cc     *rpc.ClientConn
 	bench  benchv1quic.BenchClient
 
@@ -28,15 +28,21 @@ type quicClient struct {
 	ready transport.Conn // set up by Connect, not yet taken by cc
 }
 
-func dialQUIC(addr string, tlsConf *tls.Config) *quicClient {
-	c := &quicClient{dialer: &rpcquic.Dialer{Addr: addr, TLSConfig: tlsConf}}
+// NewRPCClient returns a client of quic-rpc-go over any transport, such as
+// the in-memory one of tests. It does not connect yet.
+func NewRPCClient(d transport.Dialer) Client {
+	c := &rpcClient{dialer: d}
 	c.cc = rpc.NewClient(c)
 	c.bench = benchv1quic.NewBenchClient(c.cc)
 	return c
 }
 
+func dialQUIC(addr string, tlsConf *tls.Config) Client {
+	return NewRPCClient(&rpcquic.Dialer{Addr: addr, TLSConfig: tlsConf})
+}
+
 // Dial hands the ClientConn the connection Connect set up, or dials anew.
-func (c *quicClient) Dial(ctx context.Context) (transport.Conn, error) {
+func (c *rpcClient) Dial(ctx context.Context) (transport.Conn, error) {
 	c.mu.Lock()
 	conn := c.ready
 	c.ready = nil
@@ -47,7 +53,7 @@ func (c *quicClient) Dial(ctx context.Context) (transport.Conn, error) {
 	return c.dialer.Dial(ctx)
 }
 
-func (c *quicClient) Connect(ctx context.Context) error {
+func (c *rpcClient) Connect(ctx context.Context) error {
 	conn, err := c.dialer.Dial(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -65,7 +71,7 @@ func (c *quicClient) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (c *quicClient) Call(ctx context.Context, payload []byte, respSize int) (int, error) {
+func (c *rpcClient) Call(ctx context.Context, payload []byte, respSize int) (int, error) {
 	size, err := checkSize(respSize)
 	if err != nil {
 		return 0, err
@@ -77,7 +83,7 @@ func (c *quicClient) Call(ctx context.Context, payload []byte, respSize int) (in
 	return len(resp.GetPayload()), nil
 }
 
-func (c *quicClient) Echo(ctx context.Context) (EchoStream, error) {
+func (c *rpcClient) Echo(ctx context.Context) (EchoStream, error) {
 	s, err := c.bench.Echo(ctx)
 	if err != nil {
 		return nil, quicError(err)
@@ -85,7 +91,7 @@ func (c *quicClient) Echo(ctx context.Context) (EchoStream, error) {
 	return quicEcho{s}, nil
 }
 
-func (c *quicClient) Close() error {
+func (c *rpcClient) Close() error {
 	c.mu.Lock()
 	conn := c.ready
 	c.ready = nil
