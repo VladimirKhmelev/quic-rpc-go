@@ -23,7 +23,7 @@ RPC для Go поверх нативных потоков QUIC ([quic-go](https
 
 Параллельно с фазами библиотека встраивается в [messenger-on-go](https://github.com/VladimirKhmelev/messenger-on-go) — мессенджер Wisply из пяти сервисов, которые сейчас общаются по gRPC. План:
 
-- прослойка, которая подставляет quic-rpc-go под код, сгенерированный для grpc-go (`grpc.ClientConnInterface` и `grpc.ServiceRegistrar`), чтобы сервисы работали по gRPC и по QUIC одновременно и транспорт выбирался настройкой;
+- прослойка [`grpcbridge`](grpcbridge), которая подставляет quic-rpc-go под код, сгенерированный для grpc-go (`grpc.ClientConnInterface` и `grpc.ServiceRegistrar`), чтобы сервисы работали по gRPC и по QUIC одновременно и транспорт выбирался настройкой;
 - трассировка OpenTelemetry с теми же спанами, что у gRPC;
 - сравнение транспортов на реальных серверах с метриками в Grafana.
 
@@ -51,7 +51,7 @@ protoc --go_out=. --go_opt=paths=source_relative \
 
 ## Разработка
 
-Нужны Go 1.26 и golangci-lint 2.x. Репозиторий состоит из двух модулей: библиотека `rpc/` и корневой модуль со стендом и эталонами.
+Нужны Go 1.26 и golangci-lint 2.x. Репозиторий состоит из трёх модулей: библиотека `rpc/`, прослойка `grpcbridge/` для кода grpc-go и корневой модуль со стендом и эталонами.
 
 ```sh
 make check   # gofmt, go mod tidy, сгенерированный код, go vet, линтер, тесты с -race

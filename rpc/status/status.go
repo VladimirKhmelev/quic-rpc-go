@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 
+	"google.golang.org/protobuf/types/known/anypb"
+
 	"github.com/VladimirKhmelev/quic-rpc-go/rpc/codes"
 	istatus "github.com/VladimirKhmelev/quic-rpc-go/rpc/internal/status"
 )
@@ -93,4 +95,18 @@ func FromContextError(err error) *Status {
 	default:
 		return New(codes.Unknown, err.Error())
 	}
+}
+
+// FromWire returns a status with details already packed in Any, as they
+// travel between processes. Unlike WithDetails it keeps details of types
+// this program does not know, so that a bridge to another RPC stack can
+// hand a status over unchanged. It takes ownership of details.
+func FromWire(c codes.Code, msg string, details []*anypb.Any) *Status {
+	return istatus.FromWire(c, msg, details)
+}
+
+// Wire returns the code, the message and the packed details of s, as
+// FromWire takes them. The details must not be modified.
+func Wire(s *Status) (codes.Code, string, []*anypb.Any) {
+	return istatus.Wire(s)
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/rpc/codes"
@@ -197,5 +198,33 @@ func TestErrorIs(t *testing.T) {
 		if got := errors.Is(tt.err, tt.target); got != tt.want {
 			t.Errorf("%s: errors.Is = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+// TestWire: a status goes through Wire and FromWire unchanged, even with a
+// detail of a type this program does not know.
+func TestWire(t *testing.T) {
+	known, err := anypb.New(wrapperspb.String("why"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := &anypb.Any{TypeUrl: "type.googleapis.com/elsewhere.v1.Reason", Value: []byte{0x0a, 0x01, 'x'}}
+	st := status.FromWire(codes.NotFound, "gone", []*anypb.Any{known, unknown})
+	if st.Code() != codes.NotFound || st.Message() != "gone" {
+		t.Fatalf("FromWire = %v", st)
+	}
+	d := st.Details()
+	if len(d) != 2 || !proto.Equal(d[0].(proto.Message), wrapperspb.String("why")) {
+		t.Fatalf("details %v", d)
+	}
+	if _, ok := d[1].(error); !ok {
+		t.Errorf("detail of an unknown type unpacked as %v", d[1])
+	}
+	c, msg, details := status.Wire(st)
+	if c != codes.NotFound || msg != "gone" || len(details) != 2 || !proto.Equal(details[1], unknown) {
+		t.Errorf("Wire = %v, %q, %v", c, msg, details)
+	}
+	if c, msg, details := status.Wire(nil); c != codes.OK || msg != "" || details != nil {
+		t.Errorf("Wire(nil) = %v, %q, %v", c, msg, details)
 	}
 }
