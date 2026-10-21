@@ -5,6 +5,16 @@
 // adjusts them for the protocol: the ALPN is set to "qrpc/1", unidirectional
 // streams are disabled and the client accepts no streams from the server.
 // All other settings are kept.
+//
+// A server that restarts should listen with NewListener on a transport with
+// a stateless reset key that stays the same across restarts. When a server
+// dies, its clients are not told, as they would be of a TCP connection
+// closed by the kernel: their packets reach the new server, which knows
+// nothing of the connection. With the key it answers them with a stateless
+// reset (RFC 9000, section 10.3) and the client closes the connection at
+// once; without it the packets are dropped and the client waits for the
+// idle timeout, 30 s by default. Either way the streams that reach the new
+// server fail: the client learns of the restart only when it sends.
 package rpcquic
 
 import (
@@ -30,7 +40,8 @@ type Listener struct {
 }
 
 // Listen listens for connections on the UDP address addr. tlsConf must
-// contain the server certificate; conf may be nil.
+// contain the server certificate; conf may be nil. The server sends no
+// stateless resets; see NewListener.
 func Listen(addr string, tlsConf *tls.Config, conf *quic.Config) (*Listener, error) {
 	tc, err := configureTLS(tlsConf)
 	if err != nil {
@@ -39,6 +50,24 @@ func Listen(addr string, tlsConf *tls.Config, conf *quic.Config) (*Listener, err
 	l, err := quic.ListenAddr(addr, tc, configureQUIC(conf, false))
 	if err != nil {
 		return nil, fmt.Errorf("rpcquic: listen on %s: %w", addr, err)
+	}
+	return &Listener{l: l}, nil
+}
+
+// NewListener accepts connections on t, a transport the caller set up, as
+// Listen does on an address. The caller closes t after the listener;
+// closing t ends its connections at once, without telling the clients.
+// Set t.StatelessResetKey to a key that is the same on every start of the
+// server, so that clients of a restarted server close their connections
+// at once (see the package documentation).
+func NewListener(t *quic.Transport, tlsConf *tls.Config, conf *quic.Config) (*Listener, error) {
+	tc, err := configureTLS(tlsConf)
+	if err != nil {
+		return nil, err
+	}
+	l, err := t.Listen(tc, configureQUIC(conf, false))
+	if err != nil {
+		return nil, fmt.Errorf("rpcquic: listen: %w", err)
 	}
 	return &Listener{l: l}, nil
 }

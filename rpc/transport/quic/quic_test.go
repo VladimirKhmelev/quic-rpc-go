@@ -2,6 +2,7 @@ package rpcquic_test
 
 import (
 	"crypto/tls"
+	"net"
 	"reflect"
 	"testing"
 
@@ -96,5 +97,56 @@ func TestConfigsAreNotModified(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*serverQUIC, wantServerQUIC) || !reflect.DeepEqual(*clientQUIC, wantClientQUIC) {
 		t.Errorf("QUIC configs were modified: server %+v, client %+v", *serverQUIC, *clientQUIC)
+	}
+}
+
+// TestNewListenerChecksTLS: NewListener adjusts and checks the TLS config
+// as Listen does.
+func TestNewListenerChecksTLS(t *testing.T) {
+	serverTLS, _ := transporttest.TLSConfigs(t)
+	pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := &quic.Transport{Conn: pc}
+	defer func() { _ = tr.Close(); _ = pc.Close() }()
+	if _, err := rpcquic.NewListener(tr, nil, nil); err == nil {
+		t.Error("NewListener without a TLS config succeeded")
+	}
+	foreign := serverTLS.Clone()
+	foreign.NextProtos = []string{"h3"}
+	if _, err := rpcquic.NewListener(tr, foreign, nil); err == nil {
+		t.Error("NewListener accepted a TLS config with a foreign ALPN")
+	}
+}
+
+// TestServerRefusesUniStreams: a server made by either Listen or
+// NewListener allows no unidirectional streams, even to a client that is
+// not ours.
+func TestServerRefusesUniStreams(t *testing.T) {
+	t.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "true")
+	serverTLS, clientTLS := transporttest.TLSConfigs(t)
+	pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := &quic.Transport{Conn: pc}
+	defer func() { _ = tr.Close(); _ = pc.Close() }()
+	fromTransport, err := rpcquic.NewListener(tr, serverTLS, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, l := range map[string]*rpcquic.Listener{"Listen": listen(t, serverTLS, nil), "NewListener": fromTransport} {
+		ctx := transporttest.Context(t)
+		tc := clientTLS.Clone()
+		tc.NextProtos = []string{rpcquic.ALPN}
+		qc, err := quic.DialAddr(ctx, l.Addr().String(), tc, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, err := qc.OpenUniStream(); err == nil {
+			t.Errorf("%s: the server allowed a unidirectional stream", name)
+		}
+		_ = qc.CloseWithError(0, "")
 	}
 }
