@@ -17,10 +17,20 @@
 //     the call with Internal rather than being ignored;
 //   - unary interceptors, chained as grpc.ChainUnaryInterceptor and
 //     grpc.WithChainUnaryInterceptor chain them. Client interceptors get a
-//     nil *grpc.ClientConn.
+//     nil *grpc.ClientConn;
+//   - stats handlers, as grpc.StatsHandler and grpc.WithStatsHandler add
+//     them, so that otelgrpc traces calls over QUIC. A handler tags each
+//     call where grpc-go tags it: on the client after the interceptors, so
+//     that what it adds to the outgoing metadata is sent, on the server
+//     before them. It gets the events Begin, then OutHeader with the
+//     outgoing metadata on the client or InHeader with the incoming
+//     metadata on the server, and End. A stream ends when RecvMsg returns
+//     an error or its context is done.
 //
-// It does not provide the peer of a call (peer.FromContext finds nothing),
-// stream interceptors or compression.
+// It does not provide the peer of a call (peer.FromContext finds nothing
+// and the addresses in the events are nil), the stats events of payloads,
+// of the received header and trailer and of connections, stream
+// interceptors or compression.
 package grpcbridge
 
 import (
