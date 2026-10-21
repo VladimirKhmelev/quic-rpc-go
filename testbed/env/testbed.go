@@ -4,21 +4,34 @@ package env
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/testbed/netns"
 )
 
-// tools are the programs the testbed and the self-check run, with the
-// arguments that print their versions.
+// Collect records the environment of a run in the running testbed, built
+// with the TCP setup tcp: the machine, the tools and the testbed.
+func Collect(ctx context.Context, tcp netns.TCP) (*Env, error) {
+	e := Machine("/")
+	e.AddTools(ctx)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return e, e.AddTestbed(ctx, tcp)
+}
+
+// tools are the programs the testbed, the self-check and the benchmarks
+// run, with the arguments that print their versions.
 var tools = map[string][]string{
 	"ip":      {"-V"},
 	"tc":      {"-V"},
 	"ethtool": {"--version"},
 	"ping":    {"-V"},
 	"iperf3":  {"--version"},
+	"taskset": {"--version"},
 }
 
 // AddTools records the Go version and the first line each tool prints
@@ -26,7 +39,10 @@ var tools = map[string][]string{
 func (e *Env) AddTools(ctx context.Context) {
 	e.Tools = map[string]string{"go": runtime.Version()}
 	for name, args := range tools {
-		out, err := exec.CommandContext(ctx, name, args...).CombinedOutput() //nolint:gosec // fixed tools
+		cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // fixed tools
+		// Some tools translate the line.
+		cmd.Env = append(os.Environ(), "LC_ALL=C")
+		out, err := cmd.CombinedOutput()
 		line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 		if (err != nil && line == "") || strings.Contains(line, "not found") {
 			line = "missing"

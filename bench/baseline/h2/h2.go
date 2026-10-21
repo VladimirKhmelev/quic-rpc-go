@@ -10,6 +10,10 @@
 //   - keepalive: no client pings; the server pings after 2 hours of
 //     inactivity and allows client pings at most every 5 minutes;
 //   - TLS: the given config; grpc-go adds the ALPN "h2".
+//
+// One default it does not keep: grpc-go dials through the proxy that
+// HTTPS_PROXY names, and the calls of a benchmark must go straight to the
+// server.
 package h2
 
 import (
@@ -26,8 +30,8 @@ func NewServer(tlsConf *tls.Config, opts ...grpc.ServerOption) *grpc.Server {
 
 // Dial returns a client connection to the server at addr ("host:port"),
 // verified with tlsConf. Like grpc.NewClient it connects on the first call.
-// The address is used as is, without name resolution.
+// The address is used as is, without name resolution or a proxy.
 func Dial(addr string, tlsConf *tls.Config, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	return grpc.NewClient("passthrough:///"+addr,
-		append([]grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConf))}, opts...)...)
+		append([]grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConf)), grpc.WithNoProxy()}, opts...)...)
 }

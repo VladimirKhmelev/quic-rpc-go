@@ -1,4 +1,6 @@
 /bin/
+# Runs of the benchmarks, see data/schema.md.
+/out/
 *.test
 *.out
 *.prof

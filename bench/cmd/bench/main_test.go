@@ -4,15 +4,18 @@ import (
 	"bufio"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/bench/common"
+	"github.com/VladimirKhmelev/quic-rpc-go/bench/loadgen"
 	"github.com/VladimirKhmelev/quic-rpc-go/internal/certs"
 )
 
@@ -120,10 +123,12 @@ func TestLoad(t *testing.T) {
 			dir, addr := startServer(t, tr)
 			for _, profile := range []string{"small-heavy", "bidi", "reconnect"} {
 				out := filepath.Join(t.TempDir(), "calls.csv")
-				if err := command(t, "load", "-transport", string(tr), "-addr", addr, "-certs", dir, "-loads", file,
-					"-profile", profile, "-warmup", "200ms", "-duration", "800ms", "-out", out).Run(); err != nil {
+				stdout, err := command(t, "load", "-transport", string(tr), "-addr", addr, "-certs", dir, "-loads", file,
+					"-profile", profile, "-warmup", "200ms", "-duration", "800ms", "-out", out).Output()
+				if err != nil {
 					t.Fatalf("load %s: %v", profile, err)
 				}
+				checkEvents(t, stdout)
 				f, err := os.Open(out) //nolint:gosec // the test's own file
 				if err != nil {
 					t.Fatal(err)
@@ -149,6 +154,33 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+// checkEvents checks the events that load printed: the phases in order
+// and one TLS setup, the one internal/certs sets.
+func checkEvents(t *testing.T, stdout []byte) {
+	t.Helper()
+	var phases []loadgen.Phase
+	var setups []tlsInfo
+	for line := range strings.Lines(string(stdout)) {
+		var ev event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("event %q: %v", line, err)
+		}
+		if ev.Phase != "" {
+			phases = append(phases, ev.Phase)
+		}
+		if ev.TLS != nil {
+			setups = append(setups, *ev.TLS)
+		}
+	}
+	if want := []loadgen.Phase{loadgen.PhaseWarmup, loadgen.PhaseMeasure, loadgen.PhaseEnd}; !slices.Equal(phases, want) {
+		t.Errorf("phases %v, want %v", phases, want)
+	}
+	if len(setups) != 1 || setups[0].Version != "TLS 1.3" || setups[0].Group != certs.KeyExchange[0].String() ||
+		!strings.HasPrefix(setups[0].CipherSuite, "TLS_") {
+		t.Errorf("TLS setups %+v", setups)
+	}
+}
+
 func TestUsage(t *testing.T) {
 	for _, args := range [][]string{
 		nil,
@@ -156,6 +188,11 @@ func TestUsage(t *testing.T) {
 		{"certs"},
 		{"server", "-addr", "127.0.0.1:0", "-certs", t.TempDir()},
 		{"server", "-transport", "h3", "-addr", "127.0.0.1:0", "-certs", t.TempDir()},
+		{"run", "-transport", "quic"},
+		{"run", "-transport", "h3", "-load", "small"},
+		{"run", "-transport", "quic", "-load", "small", "-server-cpus", "2-"},
+		{"run", "-transport", "quic", "-load", "small", "-tcp", "reno"},
+		{"run", "-transport", "quic", "-load", "small", "-duration", "0s"},
 	} {
 		err := command(t, args...).Run()
 		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 { //nolint:errorlint // the command's own error

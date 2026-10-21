@@ -211,7 +211,7 @@ func runInTestbed(ctx context.Context, p netns.Profile, tcp netns.TCP, verbose b
 	if o := p.Outage; o != (netns.Outage{}) {
 		fmt.Fprintf(os.Stderr, "testbed: the link is cut for %v every %v\n", o.Duration, o.Every)
 	}
-	go func() { outages <- s.Outages(outagesCtx, p) }()
+	go func() { outages <- s.Outages(outagesCtx, p, time.Now().Add(p.Outage.Every)) }()
 
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // running the user's command is the point
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -237,7 +237,7 @@ func check(ctx context.Context, targets []netns.Profile, tcp netns.TCP, strict b
 	if err := s.Up(ctx, netns.None); err != nil {
 		return 1, err
 	}
-	e, err := collectEnv(ctx, tcp)
+	e, err := env.Collect(ctx, tcp)
 	if err != nil {
 		return 1, err
 	}
@@ -287,7 +287,7 @@ func printEnv(ctx context.Context, tcp netns.TCP) (int, error) {
 	if err := s.Up(ctx, netns.None); err != nil {
 		return 1, err
 	}
-	e, err := collectEnv(ctx, tcp)
+	e, err := env.Collect(ctx, tcp)
 	if err != nil {
 		return 1, err
 	}
@@ -297,14 +297,6 @@ func printEnv(ctx context.Context, tcp netns.TCP) (int, error) {
 	}
 	fmt.Println(string(data))
 	return 0, s.Down(ctx)
-}
-
-func collectEnv(ctx context.Context, tcp netns.TCP) (*env.Env, error) {
-	e := env.Machine("/")
-	e.AddTools(ctx)
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	return e, e.AddTestbed(ctx, tcp)
 }
 
 func writeJSON(file string, v any) error {

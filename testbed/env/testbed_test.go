@@ -44,10 +44,33 @@ large-receive-offload: off [fixed]
 }
 
 func TestAddTools(t *testing.T) {
+	// Recorded in English whatever the locale.
+	t.Setenv("LANG", "ru_RU.UTF-8")
 	e := &Env{}
 	e.AddTools(t.Context())
 	if e.Tools["go"] != runtime.Version() || e.Tools["ip"] == "" || e.Tools["ip"] == "missing" {
 		t.Fatalf("tools: %v", e.Tools)
+	}
+	if ts := e.Tools["taskset"]; ts != "missing" && !strings.HasPrefix(ts, "taskset from util-linux") {
+		t.Errorf("taskset: %q", ts)
+	}
+}
+
+func TestCollect(t *testing.T) {
+	if unavailable != nil {
+		t.Skip(unavailable)
+	}
+	s := &netns.Stand{TCP: netns.TCPDefault}
+	if err := s.Up(t.Context(), netns.None); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Down(context.Background()) }()
+	e, err := Collect(t.Context(), netns.TCPDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Kernel == "" || len(e.CPUs) == 0 || e.Tools["go"] == "" || e.Testbed == nil || e.Testbed.TCP != string(netns.TCPDefault) {
+		t.Fatalf("environment %+v", e)
 	}
 }
 

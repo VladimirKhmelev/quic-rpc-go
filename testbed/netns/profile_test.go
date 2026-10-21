@@ -1,6 +1,7 @@
 package netns
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -164,5 +165,29 @@ func TestLookup(t *testing.T) {
 	}
 	if _, err := Lookup(profiles, "c"); err == nil || !strings.Contains(err.Error(), "a, b") {
 		t.Fatalf("Lookup(c) = %v, want an error listing the profiles", err)
+	}
+}
+
+// TestProfileJSON: a profile written to JSON, as the data of a run records
+// it, reads back the same.
+func TestProfileJSON(t *testing.T) {
+	profiles, err := ParseProfiles(scenarios.Profiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Lookup(profiles, "degraded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Profile
+	if err := json.Unmarshal(data, &back); err != nil || back != p {
+		t.Fatalf("%s read back as %+v, %v", data, back, err)
+	}
+	if !strings.Contains(string(data), `"loss_pct":2,`) || !strings.Contains(string(data), `"rate_bps":10000000,`) {
+		t.Errorf("JSON %s", data)
 	}
 }

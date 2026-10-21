@@ -6,6 +6,9 @@
 //	bench server -transport quic|grpc-h2 -addr HOST:PORT -certs DIR
 //	bench load -transport quic|grpc-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
 //	           [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N]
+//	bench run -transport quic|grpc-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
+//	          [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
+//	          [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-out DIR]
 //
 // certs issues a throwaway CA and a server certificate into DIR, for the
 // server and its clients to share. server answers the calls of the
@@ -18,7 +21,25 @@
 // -duration of measurement, with the seed -seed. It writes a row per call
 // to the CSV file -out (see data/schema.md) and prints a summary; failed
 // calls are rows like any other, so it fails only if it cannot run.
-// -closed N makes the calls closed-loop on N workers, for comparison.
+// -closed N makes the calls closed-loop on N workers, for comparison. On
+// its standard output it prints a line of JSON as each phase of the run
+// begins, {"phase":"warmup"}, "measure" and "end", and for the TLS setup of
+// the first connection and of any that differs:
+// {"tls":{"version":"TLS 1.3","cipher_suite":"...","group":"..."}}.
+//
+// run makes one run of the benchmark in the network testbed (Linux only,
+// no root; see docs/testbed.md): it builds the testbed with the network
+// profile -profile of testbed/scenarios/profiles.yaml (or of -profiles
+// FILE) and the TCP setup -tcp, starts the server in namespace server on
+// CPUs -server-cpus and the load generator with load profile -load in
+// namespace client on CPUs -client-cpus, both with GOMAXPROCS=-gomaxprocs
+// and GSO of quic-go off (NET-5). The outages of the network profile start
+// in the middle of the measurement. It writes calls.csv, meta.json (the
+// setup, the environment, the CPU time of the measurement and a summary),
+// the logs and the certificates into -out, by default
+// out/TIME-TRANSPORT-NETWORK-LOAD-sSEED; data/schema.md describes the
+// files. With -strict it refuses to run on a machine not tuned for a
+// series. An empty CPU list leaves a process unpinned.
 package main
 
 import (
@@ -44,6 +65,9 @@ const usage = `usage:
   bench server -transport quic|grpc-h2 -addr HOST:PORT -certs DIR
   bench load -transport quic|grpc-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
              [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N]
+  bench run -transport quic|grpc-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
+            [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
+            [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-out DIR]
 `
 
 func main() {
@@ -115,10 +139,44 @@ func run(args []string) (int, error) {
 			return 2, fmt.Errorf("%w: load needs -transport, -addr, -certs, -profile and -out", errUsage)
 		}
 		return load(c)
+	case "run":
+		var c runConfig
+		fs.StringVar(&c.transport, "transport", "", "serve and call with `TRANSPORT`: quic or grpc-h2")
+		fs.StringVar(&c.load, "load", "", "run load profile `NAME`")
+		fs.StringVar(&c.network, "profile", netns.None.Name, "apply network profile `NAME`")
+		fs.StringVar(&c.tcp, "tcp", string(netns.TCPAligned), "TCP setup of the end hosts: aligned or default")
+		fs.Uint64Var(&c.seed, "seed", 1, "seed of the schedule")
+		fs.DurationVar(&c.warmup, "warmup", 5*time.Second, "warm-up before the measurement")
+		fs.DurationVar(&c.measure, "duration", 30*time.Second, "length of the measurement")
+		fs.DurationVar(&c.timeout, "timeout", loadgen.DefaultTimeout, "deadline of every call")
+		fs.StringVar(&c.serverCPUs, "server-cpus", "2-3", "pin the server to `LIST` of CPUs")
+		fs.StringVar(&c.clientCPUs, "client-cpus", "4-5", "pin the load generator to `LIST` of CPUs")
+		fs.IntVar(&c.gomaxprocs, "gomaxprocs", 2, "GOMAXPROCS of the server and the load generator; 0 leaves Go's default")
+		fs.StringVar(&c.profiles, "profiles", "", "read network profiles from `FILE` instead of the bundled ones")
+		fs.StringVar(&c.loads, "loads", "", "read load profiles from `FILE` instead of the bundled ones")
+		fs.BoolVar(&c.strict, "strict", false, "refuse to run on a machine not tuned for a series (NET-5)")
+		fs.StringVar(&c.out, "out", "", "write the run into `DIR`, which must not exist")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2, nil // flag has printed the error
+		}
+		if c.load == "" || fs.NArg() != 0 {
+			return 2, fmt.Errorf("%w: run needs -transport and -load", errUsage)
+		}
+		return benchRun(c)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return 2, nil
 	}
+}
+
+// runConfig is the command line of run.
+type runConfig struct {
+	transport, load, network, tcp, profiles, loads, out string
+	serverCPUs, clientCPUs                              string
+	seed                                                uint64
+	warmup, measure, timeout                            time.Duration
+	gomaxprocs                                          int
+	strict                                              bool
 }
 
 // loadConfig is the command line of load.
@@ -132,11 +190,9 @@ func load(c loadConfig) (int, error) {
 	if err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
-	data := scenarios.Loads
-	if c.loads != "" {
-		if data, err = os.ReadFile(c.loads); err != nil { //nolint:gosec // the file the user named
-			return 1, err
-		}
+	data, err := readFileOr(c.loads, scenarios.Loads)
+	if err != nil {
+		return 1, err
 	}
 	profiles, err := loadgen.ParseProfiles(data)
 	if err != nil {
@@ -153,7 +209,11 @@ func load(c loadConfig) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	c.cfg.Dial = func() (common.Client, error) { return common.Dial(t, c.addr, p.Client) }
+	ev := newEvents(os.Stdout)
+	tlsConf := p.Client.Clone()
+	tlsConf.VerifyConnection = ev.verify
+	c.cfg.Dial = func() (common.Client, error) { return common.Dial(t, c.addr, tlsConf) }
+	c.cfg.OnPhase = ev.phase
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	records, runErr := loadgen.Run(ctx, c.cfg)
@@ -190,4 +250,11 @@ func serve(t common.Transport, addr, certsDir string) (int, error) {
 	<-stop
 	srv.Stop()
 	return 0, nil
+}
+
+func readFileOr(file string, bundled []byte) ([]byte, error) {
+	if file == "" {
+		return bundled, nil
+	}
+	return os.ReadFile(file) //nolint:gosec // the file the user named
 }

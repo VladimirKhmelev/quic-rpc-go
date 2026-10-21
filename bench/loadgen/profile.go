@@ -16,12 +16,12 @@ import (
 // Profile is a load profile (GEN-3): what calls a run makes and how often.
 // Every part is optional, but a profile needs at least one.
 type Profile struct {
-	Name        string     `yaml:"name"`
-	Description string     `yaml:"description"`
-	Small       *Small     `yaml:"small"`
-	Heavy       *Heavy     `yaml:"heavy"`
-	Echo        *Echo      `yaml:"echo"`
-	Reconnect   *Reconnect `yaml:"reconnect"`
+	Name        string     `json:"name"                yaml:"name"`
+	Description string     `json:"description"         yaml:"description"`
+	Small       *Small     `json:"small,omitempty"     yaml:"small"`
+	Heavy       *Heavy     `json:"heavy,omitempty"     yaml:"heavy"`
+	Echo        *Echo      `json:"echo,omitempty"      yaml:"echo"`
+	Reconnect   *Reconnect `json:"reconnect,omitempty" yaml:"reconnect"`
 }
 
 // Small are small unary calls arriving as a Poisson process of Rate per
@@ -29,30 +29,30 @@ type Profile struct {
 // uniformly from MinSize to MaxSize bytes. Reconnect draws the sizes of its
 // calls from here too.
 type Small struct {
-	Rate    float64 `yaml:"rate"`
-	MinSize int     `yaml:"min_size"`
-	MaxSize int     `yaml:"max_size"`
+	Rate    float64 `json:"rate"     yaml:"rate"`
+	MinSize int     `json:"min_size" yaml:"min_size"`
+	MaxSize int     `json:"max_size" yaml:"max_size"`
 }
 
 // Heavy is a unary call every Every, with an empty request and a response
 // of Size bytes.
 type Heavy struct {
-	Size  int           `yaml:"size"`
-	Every time.Duration `yaml:"every"`
+	Size  int           `json:"size"     yaml:"size"`
+	Every time.Duration `json:"every_ns" yaml:"every"`
 }
 
 // Echo are messages of Size bytes on one bidi stream, a Poisson process of
 // Rate per second; the server sends each back.
 type Echo struct {
-	Rate float64 `yaml:"rate"`
-	Size int     `yaml:"size"`
+	Rate float64 `json:"rate" yaml:"rate"`
+	Size int     `json:"size" yaml:"size"`
 }
 
 // Reconnect opens a new connection every Every and makes Calls small calls
 // on it at once.
 type Reconnect struct {
-	Every time.Duration `yaml:"every"`
-	Calls int           `yaml:"calls"`
+	Every time.Duration `json:"every_ns" yaml:"every"`
+	Calls int           `json:"calls"    yaml:"calls"`
 }
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
