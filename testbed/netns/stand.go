@@ -191,10 +191,10 @@ func (s *Stand) Up(ctx context.Context, p Profile) error {
 func (s *Stand) Apply(ctx context.Context, p Profile) error { return s.run(ctx, ApplyCommands(p)) }
 
 // Outages cuts the link as p.Outage says until ctx ends: an outage of
-// p.Outage.Duration starts every p.Outage.Every, the first one a period
-// after the call. If ctx ends during an outage, the impairments of p are
-// brought back. Without an outage in p it returns at once.
-func (s *Stand) Outages(ctx context.Context, p Profile) error {
+// p.Outage.Duration starts at first and then every p.Outage.Every. If ctx
+// ends during an outage, the impairments of p are brought back. Without an
+// outage in p it returns at once.
+func (s *Stand) Outages(ctx context.Context, p Profile, first time.Time) error {
 	o := p.Outage
 	if o.Every == 0 {
 		return nil
@@ -209,7 +209,7 @@ func (s *Stand) Outages(ctx context.Context, p Profile) error {
 			return false
 		}
 	}
-	for next := time.Now().Add(o.Every); ; next = next.Add(o.Every) {
+	for next := first; ; next = next.Add(o.Every) {
 		if !sleep(next) {
 			return nil
 		}

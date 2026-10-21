@@ -272,8 +272,9 @@ func TestReorderedPacketsPassTheBottleneck(t *testing.T) {
 }
 
 // TestOutages sends a datagram every 5 ms through a profile that cuts the
-// link for 400 ms every second: nothing sent well inside the first outage
-// arrives, almost everything before and after it does.
+// link for 400 ms every second, the first time after 600 ms: nothing sent
+// well inside the first outage arrives, almost everything before and after
+// it does.
 func TestOutages(t *testing.T) {
 	p := Profile{Name: "outages", RTT: 10 * time.Millisecond, Outage: Outage{Duration: 400 * time.Millisecond, Every: time.Second}}
 	s := up(t, p)
@@ -290,8 +291,9 @@ func TestOutages(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	start := time.Now()
 	outages := make(chan error, 1)
-	go func() { outages <- s.Outages(ctx, p) }()
+	go func() { outages <- s.Outages(ctx, p, start.Add(600*time.Millisecond)) }()
 	const interval, total = 5 * time.Millisecond, 1900 * time.Millisecond
 	sent := int(total / interval)
 	// Read while sending: the socket buffer would not hold them all.
@@ -309,7 +311,6 @@ func TestOutages(t *testing.T) {
 			}
 		}
 	}()
-	start := time.Now()
 	for i := range sent {
 		time.Sleep(time.Until(start.Add(time.Duration(i) * interval)))
 		if _, err := conn.Write([]byte{byte(i >> 8), byte(i)}); err != nil {
@@ -330,9 +331,9 @@ func TestOutages(t *testing.T) {
 		}
 		return float64(n) / float64((to-from)/interval)
 	}
-	// The first outage lasts from 1000 to 1400 ms, the next starts at 2000.
-	if before, during, after := share(200*time.Millisecond, 900*time.Millisecond),
-		share(1100*time.Millisecond, 1300*time.Millisecond), share(1550*time.Millisecond, 1850*time.Millisecond); before < 0.9 || during > 0 || after < 0.9 {
+	// The first outage lasts from 600 to 1000 ms, the next starts at 1600.
+	if before, during, after := share(100*time.Millisecond, 500*time.Millisecond),
+		share(700*time.Millisecond, 900*time.Millisecond), share(1150*time.Millisecond, 1450*time.Millisecond); before < 0.9 || during > 0 || after < 0.9 {
 		t.Fatalf("arrived: %.0f%% before the outage, %.0f%% during it, %.0f%% after it", 100*before, 100*during, 100*after)
 	}
 	cancel()
@@ -348,7 +349,7 @@ func TestOutageEndsWithContext(t *testing.T) {
 	s := up(t, p)
 	ctx, cancel := context.WithCancel(t.Context())
 	outages := make(chan error, 1)
-	go func() { outages <- s.Outages(ctx, p) }()
+	go func() { outages <- s.Outages(ctx, p, time.Now().Add(100*time.Millisecond)) }()
 	// Inside the first outage, between 100 and 150 ms.
 	time.Sleep(125 * time.Millisecond)
 	cancel()
