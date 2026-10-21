@@ -36,7 +36,7 @@ protoc --go_out=. --go_opt=paths=source_relative \
 
 - [Протокол](docs/protocol.md): кадры, порядок кадров в вызове, коды ошибок, соответствие gRPC.
 - [Стенд](docs/testbed.md): топология, профили сети, как устроены воздействия, самопроверка.
-- [Методика](docs/methodology.md): выравнивание TCP и QUIC, нагрузка, окружение серий.
+- [Методика](docs/methodology.md): выравнивание TCP и QUIC, нагрузка, окружение серий, прогон.
 - [Схема данных](data/schema.md): формат сырых данных прогонов.
 
 ## Разработка
@@ -50,6 +50,7 @@ make proto   # перегенерировать код из .proto (нужен p
 make testbed-shell PROFILE=interregion   # шелл внутри стенда с профилем сети
 make testbed-check   # самопроверка стенда на всех профилях (нужен iperf3)
 sudo make host-setup  # настроить машину для серии измерений; sudo make host-restore — вернуть
+make bench-run TRANSPORT=quic PROFILE=interregion LOAD=small   # один прогон в стенде, результат в out/
 ```
 
 Тесты стенда создают network namespace без root. Ubuntu 24.04 по умолчанию это запрещает, как разрешить — в [описании стенда](docs/testbed.md#запуск). Без этого тесты стенда пропускаются.
