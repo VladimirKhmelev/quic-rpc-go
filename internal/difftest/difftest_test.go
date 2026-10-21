@@ -14,6 +14,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/bench/baseline/h2"
+	"github.com/VladimirKhmelev/quic-rpc-go/grpcbridge"
 	"github.com/VladimirKhmelev/quic-rpc-go/internal/certs"
 	"github.com/VladimirKhmelev/quic-rpc-go/internal/difftest"
 	difftestv1 "github.com/VladimirKhmelev/quic-rpc-go/internal/gen/difftest/v1"
@@ -128,8 +129,10 @@ func detailTexts(details []any) []string {
 	return out
 }
 
+// grpcClient calls through code generated for grpc-go, over grpc-go itself
+// or over grpcbridge.
 type grpcClient struct {
-	conn *grpc.ClientConn
+	conn grpc.ClientConnInterface
 	c    difftestv1.DiffTestClient
 }
 
@@ -216,8 +219,9 @@ type stack struct {
 }
 
 // stacks starts the reference (grpc-go over HTTP/2 and TLS) and the stacks
-// under test (quic-rpc-go over QUIC and over mem), all serving the same
-// scenario logic. The reference comes first.
+// under test, all serving the same scenario logic: quic-rpc-go over QUIC
+// and over mem, and code generated for grpc-go over quic-rpc-go through
+// grpcbridge, again over QUIC and over mem. The reference comes first.
 func stacks(t *testing.T) []stack {
 	t.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "true")
 	pair, err := certs.New("localhost", "127.0.0.1")
@@ -239,17 +243,36 @@ func stacks(t *testing.T) []stack {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 
-	ql, err := rpcquic.Listen("127.0.0.1:0", pair.Server, nil)
-	if err != nil {
-		t.Fatalf("rpcquic.Listen: %v", err)
+	listenQUIC := func() *rpcquic.Listener {
+		l, err := rpcquic.Listen("127.0.0.1:0", pair.Server, nil)
+		if err != nil {
+			t.Fatalf("rpcquic.Listen: %v", err)
+		}
+		return l
 	}
-	ml := mem.Listen(mem.Options{})
+	ql, bql := listenQUIC(), listenQUIC()
+	ml, bml := mem.Listen(mem.Options{}), mem.Listen(mem.Options{})
 
 	return []stack{
 		{"grpc-h2", grpcClient{conn, difftestv1.NewDiffTestClient(conn)}},
 		{"rpc-quic", serveQUIC(t, ql, &rpcquic.Dialer{Addr: ql.Addr().String(), TLSConfig: pair.Client})},
 		{"rpc-mem", serveQUIC(t, ml, ml)},
+		{"bridge-quic", serveBridge(t, bql, &rpcquic.Dialer{Addr: bql.Addr().String(), TLSConfig: pair.Client})},
+		{"bridge-mem", serveBridge(t, bml, bml)},
 	}
+}
+
+// serveBridge serves the grpc-go implementation of the scenarios through
+// grpcbridge and calls it with the client generated for grpc-go.
+func serveBridge(t *testing.T, l transport.Listener, d transport.Dialer) grpcClient {
+	t.Helper()
+	srv := grpcbridge.NewServer()
+	difftestv1.RegisterDiffTestServer(srv, difftest.GRPCServer{})
+	go func() { _ = srv.Serve(l) }()
+	t.Cleanup(srv.Stop)
+	cc := grpcbridge.NewClient(d)
+	t.Cleanup(func() { _ = cc.Close() })
+	return grpcClient{cc, difftestv1.NewDiffTestClient(cc)}
 }
 
 func serveQUIC(t *testing.T, l transport.Listener, d transport.Dialer) quicClient {
