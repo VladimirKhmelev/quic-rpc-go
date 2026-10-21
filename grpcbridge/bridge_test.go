@@ -28,20 +28,58 @@ import (
 // writes services.
 type echoServer interface {
 	Call(context.Context, *wrapperspb.StringValue) (*wrapperspb.StringValue, error)
+	Repeat(*wrapperspb.StringValue, grpc.ServerStreamingServer[wrapperspb.StringValue]) error
 }
 
+// echo answers Call; Repeat sends the request back three times.
 type echo func(context.Context, *wrapperspb.StringValue) (*wrapperspb.StringValue, error)
 
 func (f echo) Call(ctx context.Context, in *wrapperspb.StringValue) (*wrapperspb.StringValue, error) {
 	return f(ctx, in)
 }
 
-const callMethod = "/test.v1.Echo/Call"
+func (echo) Repeat(in *wrapperspb.StringValue, stream grpc.ServerStreamingServer[wrapperspb.StringValue]) error {
+	for range 3 {
+		if err := stream.Send(in); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const (
+	callMethod   = "/test.v1.Echo/Call"
+	repeatMethod = "/test.v1.Echo/Repeat"
+)
 
 var echoDesc = grpc.ServiceDesc{
 	ServiceName: "test.v1.Echo",
 	HandlerType: (*echoServer)(nil),
 	Methods:     []grpc.MethodDesc{{MethodName: "Call", Handler: callHandler}},
+	Streams:     []grpc.StreamDesc{{StreamName: "Repeat", Handler: repeatHandler, ServerStreams: true}},
+}
+
+// repeatHandler is what protoc-gen-go-grpc generates for a server-streaming
+// method.
+func repeatHandler(srv any, stream grpc.ServerStream) error {
+	in := new(wrapperspb.StringValue)
+	if err := stream.RecvMsg(in); err != nil {
+		return err
+	}
+	return srv.(echoServer).Repeat(in, &grpc.GenericServerStream[wrapperspb.StringValue, wrapperspb.StringValue]{ServerStream: stream}) //nolint:forcetypeassert // checked by RegisterService
+}
+
+// repeat calls Repeat as protoc-gen-go-grpc's client does.
+func repeat(ctx context.Context, cc *grpcbridge.ClientConn, in string) (grpc.ServerStreamingClient[wrapperspb.StringValue], error) {
+	s, err := cc.NewStream(ctx, &echoDesc.Streams[0], repeatMethod, grpc.StaticMethod())
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[wrapperspb.StringValue, wrapperspb.StringValue]{ClientStream: s}
+	if err := x.SendMsg(wrapperspb.String(in)); err != nil {
+		return nil, err
+	}
+	return x, x.CloseSend()
 }
 
 // callHandler is what protoc-gen-go-grpc generates for a unary method.

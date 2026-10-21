@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/grpc"
 	grpcmetadata "google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/stats"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/rpc"
 	"github.com/VladimirKhmelev/quic-rpc-go/rpc/metadata"
@@ -17,6 +18,7 @@ import (
 type Server struct {
 	s     *rpc.Server
 	unary grpc.UnaryServerInterceptor
+	stats handlers
 }
 
 var _ grpc.ServiceRegistrar = (*Server)(nil)
@@ -26,6 +28,7 @@ type ServerOption func(*serverOptions)
 
 type serverOptions struct {
 	unary []grpc.UnaryServerInterceptor
+	stats handlers
 }
 
 // ChainUnaryInterceptor adds interceptors to unary calls. The first is the
@@ -35,13 +38,24 @@ func ChainUnaryInterceptor(interceptors ...grpc.UnaryServerInterceptor) ServerOp
 	return func(o *serverOptions) { o.unary = append(o.unary, interceptors...) }
 }
 
+// StatsHandler adds a handler of the stats of every call, as
+// grpc.StatsHandler does; the package documentation lists the events it
+// gets. Handlers are called in the order of the options; nil is ignored.
+func StatsHandler(h stats.Handler) ServerOption {
+	return func(o *serverOptions) {
+		if h != nil {
+			o.stats = append(o.stats, h)
+		}
+	}
+}
+
 // NewServer returns a server with no services registered.
 func NewServer(opts ...ServerOption) *Server {
 	var o serverOptions
 	for _, opt := range opts {
 		opt(&o)
 	}
-	return &Server{s: rpc.NewServer(), unary: chainUnaryServer(o.unary)}
+	return &Server{s: rpc.NewServer(), unary: chainUnaryServer(o.unary), stats: o.stats}
 }
 
 // chainUnaryServer makes one interceptor of several, the first outermost;
@@ -72,7 +86,12 @@ func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl any) {
 			MethodName: m.MethodName,
 			Handler: func(srv any, ctx context.Context, dec func(any) error, _ rpc.UnaryServerInterceptor) (any, error) { //nolint:revive // rpc.MethodHandler mirrors grpc-go, ctx comes second
 				decode := func(m any) error { return toGRPCError(dec(m)) }
-				resp, err := handler(srv, handlerContext(ctx, method, nil), decode, s.unary)
+				// As in grpc-go, the stats handlers tag the call before the
+				// interceptors run, with its incoming metadata.
+				ctx = handlerContext(ctx, method, nil)
+				st := s.stats.begin(ctx, method, false, false, false)
+				resp, err := handler(srv, st.context(ctx), decode, s.unary)
+				st.end(err, nil)
 				return resp, toRPCError(err)
 			},
 		})
@@ -84,7 +103,11 @@ func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl any) {
 			ServerStreams: sd.ServerStreams,
 			ClientStreams: sd.ClientStreams,
 			Handler: func(srv any, stream rpc.ServerStream) error {
-				return toRPCError(handler(srv, &serverStream{s: stream, ctx: handlerContext(stream.Context(), method, stream)}))
+				ctx := handlerContext(stream.Context(), method, stream)
+				st := s.stats.begin(ctx, method, false, sd.ClientStreams, sd.ServerStreams)
+				err := handler(srv, &serverStream{s: stream, ctx: st.context(ctx)})
+				st.end(err, nil)
+				return toRPCError(err)
 			},
 		})
 	}
