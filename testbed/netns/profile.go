@@ -2,6 +2,7 @@ package netns
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -17,42 +18,46 @@ import (
 // split evenly between the two directions; Jitter, Loss and Reorder apply to
 // each direction as given (NET-3).
 type Profile struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
+	Name        string `json:"name"        yaml:"name"`
+	Description string `json:"description" yaml:"description"`
 
-	RTT time.Duration `yaml:"rtt"`
+	RTT time.Duration `json:"rtt_ns" yaml:"rtt"`
 	// Jitter is the standard deviation of the one-way delay. Packets keep
 	// their order: a packet is never sent before the one queued ahead of it.
-	Jitter time.Duration `yaml:"jitter"`
-	Loss   Percent       `yaml:"loss"`
+	Jitter time.Duration `json:"jitter_ns" yaml:"jitter"`
+	Loss   Percent       `json:"loss_pct"  yaml:"loss"`
 	// LossBurst is the mean length of a loss burst in packets. Zero or one
 	// means independent losses; more uses the Gilbert model of netem.
-	LossBurst float64 `yaml:"loss_burst"`
+	LossBurst float64 `json:"loss_burst" yaml:"loss_burst"`
 	// Reorder is the share of packets sent without the delay, ahead of the
 	// packets queued before them.
-	Reorder Percent `yaml:"reorder"`
+	Reorder Percent `json:"reorder_pct" yaml:"reorder"`
 	// Rate is the bottleneck bandwidth; zero means unlimited.
-	Rate Rate `yaml:"rate"`
+	Rate Rate `json:"rate_bps" yaml:"rate"`
 	// QueueBDP is the bottleneck queue in bandwidth-delay products (Rate ×
 	// RTT); it is required with Rate.
-	QueueBDP float64 `yaml:"queue_bdp"`
+	QueueBDP float64 `json:"queue_bdp" yaml:"queue_bdp"`
 	// Outage cuts the link now and then; see Stand.Outages.
-	Outage Outage `yaml:"outage"`
+	Outage Outage `json:"outage" yaml:"outage"`
 }
 
 // Outage cuts the link in both directions for Duration, starting every
 // Every.
 type Outage struct {
-	Duration time.Duration `yaml:"duration"`
-	Every    time.Duration `yaml:"every"`
+	Duration time.Duration `json:"duration_ns" yaml:"duration"`
+	Every    time.Duration `json:"every_ns"    yaml:"every"`
 }
 
 // None is the profile without impairments.
 var None = Profile{Name: "none", Description: "Без воздействий"}
 
 // Percent is a percentage: 0.5 means 0.5%. In YAML it is written with the
-// percent sign.
+// percent sign, in JSON as a number.
 type Percent float64
+
+// UnmarshalJSON reads the number that encoding/json writes, which
+// UnmarshalText alone would refuse.
+func (p *Percent) UnmarshalJSON(data []byte) error { return json.Unmarshal(data, (*float64)(p)) }
 
 // UnmarshalText parses a percentage such as "0.5%".
 func (p *Percent) UnmarshalText(text []byte) error {
@@ -73,8 +78,13 @@ func (p Percent) Fraction() float64 { return float64(p) / 100 }
 
 func (p Percent) String() string { return strconv.FormatFloat(float64(p), 'f', -1, 64) + "%" }
 
-// Rate is a bandwidth in bits per second.
+// Rate is a bandwidth in bits per second. In YAML it is written with a
+// unit, in JSON as a number.
 type Rate uint64
+
+// UnmarshalJSON reads the number that encoding/json writes, which
+// UnmarshalText alone would refuse.
+func (r *Rate) UnmarshalJSON(data []byte) error { return json.Unmarshal(data, (*uint64)(r)) }
 
 var rateUnits = []struct {
 	suffix string

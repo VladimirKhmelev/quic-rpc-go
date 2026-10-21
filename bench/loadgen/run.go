@@ -37,7 +37,22 @@ type Config struct {
 	// with that many workers, each sending the next call once the last one
 	// is answered, instead of on the schedule.
 	Closed int
+	// OnPhase, if set, is called as the run enters each phase, in order
+	// and from one goroutine at a time: PhaseWarmup as the schedule
+	// starts, PhaseMeasure after Warmup and PhaseEnd after Measure. The
+	// calls still in flight at PhaseEnd are waited for after it.
+	OnPhase func(Phase)
 }
+
+// Phase is a part of a run.
+type Phase string
+
+// The phases.
+const (
+	PhaseWarmup  Phase = "warmup"
+	PhaseMeasure Phase = "measure"
+	PhaseEnd     Phase = "end"
+)
 
 // Record is one call, message or connection setup.
 type Record struct {
@@ -64,7 +79,8 @@ type runner struct {
 
 // Run makes the calls of cfg and returns a record of each, ordered as
 // scheduled. It returns an error only if it cannot run at all; calls that
-// fail are records with their status code.
+// fail are records with their status code. It lasts at least Warmup +
+// Measure, unless ctx ends.
 func Run(ctx context.Context, cfg Config) ([]Record, error) {
 	if err := cfg.Profile.Validate(); err != nil {
 		return nil, err
@@ -99,6 +115,7 @@ func Run(ctx context.Context, cfg Config) ([]Record, error) {
 
 	r.start = time.Now()
 	var wg sync.WaitGroup
+	r.phases(ctx, &wg)
 	if r.cfg.Profile.Echo != nil {
 		wg.Go(func() { r.echo(ctx, main) })
 	}
@@ -119,6 +136,25 @@ func Run(ctx context.Context, cfg Config) ([]Record, error) {
 	wg.Wait()
 	r.cancelUnsent(ctx)
 	return r.records, ctx.Err()
+}
+
+// phases calls OnPhase as the run enters each phase, the first time at
+// once and the others in a goroutine of wg.
+func (r *runner) phases(ctx context.Context, wg *sync.WaitGroup) {
+	on := r.cfg.OnPhase
+	if on == nil {
+		on = func(Phase) {}
+	}
+	on(PhaseWarmup)
+	wg.Go(func() {
+		if !sleepUntil(ctx, r.start.Add(r.cfg.Warmup)) {
+			return
+		}
+		on(PhaseMeasure)
+		if sleepUntil(ctx, r.start.Add(r.cfg.Warmup+r.cfg.Measure)) {
+			on(PhaseEnd)
+		}
+	})
 }
 
 // call makes the unary call of ev on c.
@@ -273,6 +309,7 @@ func (r *runner) closed(ctx context.Context, total time.Duration) ([]Record, err
 	var mu sync.Mutex
 	next := 0
 	var wg sync.WaitGroup
+	r.phases(ctx, &wg)
 	for range r.cfg.Closed {
 		wg.Go(func() {
 			for ctx.Err() == nil {
