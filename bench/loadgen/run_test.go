@@ -3,6 +3,7 @@ package loadgen
 import (
 	"context"
 	"io"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -219,6 +220,50 @@ func TestClosedLoop(t *testing.T) {
 			if r.Seq != i || r.Scheduled != time.Duration(i)*10*time.Millisecond || r.Latency != 10*time.Millisecond {
 				t.Fatalf("record %+v", r)
 			}
+		}
+	})
+}
+
+// TestPhases: the phases begin on time, and a run lasts its full length
+// even when its last call is answered earlier.
+func TestPhases(t *testing.T) {
+	for _, closed := range []int{0, 1} {
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
+			var phases []Phase
+			var at []time.Duration
+			cfg := Config{
+				Profile: Profile{Name: "p", Small: &Small{Rate: 2, MinSize: 1, MaxSize: 1}},
+				Warmup:  time.Second, Measure: 2 * time.Second, Closed: closed,
+				OnPhase: func(p Phase) { phases = append(phases, p); at = append(at, time.Since(start)) },
+			}
+			run(t.Context(), t, cfg, &fakeClient{delay: time.Millisecond})
+			if want := []Phase{PhaseWarmup, PhaseMeasure, PhaseEnd}; !slices.Equal(phases, want) {
+				t.Fatalf("closed %d: phases %v, want %v", closed, phases, want)
+			}
+			if want := []time.Duration{0, time.Second, 3 * time.Second}; !slices.Equal(at, want) {
+				t.Errorf("closed %d: phases at %v, want %v", closed, at, want)
+			}
+			if d := time.Since(start); d < 3*time.Second {
+				t.Errorf("closed %d: the run took %v", closed, d)
+			}
+		})
+	}
+}
+
+// TestPhasesCanceled: a run canceled during the measurement never ends it.
+func TestPhasesCanceled(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		var phases []Phase
+		_, err := Run(ctx, Config{
+			Profile: Profile{Name: "p", Small: &Small{Rate: 2}}, Warmup: time.Second, Measure: 2 * time.Second,
+			Dial:    func() (common.Client, error) { return &fakeClient{}, nil },
+			OnPhase: func(p Phase) { phases = append(phases, p) },
+		})
+		if err == nil || !slices.Equal(phases, []Phase{PhaseWarmup, PhaseMeasure}) {
+			t.Fatalf("phases %v, %v", phases, err)
 		}
 	})
 }
