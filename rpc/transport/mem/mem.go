@@ -138,6 +138,10 @@ type session struct {
 	// them. A stream keeps its slot until accepted, so this never fills up.
 	accept chan *stream
 	ends   [2]*conn
+	// mu guards released, which is closed and replaced whenever a stream
+	// gives its slot back.
+	mu       sync.Mutex
+	released chan struct{}
 
 	done      chan struct{}
 	closeOnce sync.Once
@@ -161,10 +165,11 @@ type conn struct {
 
 func newConnPair(opts Options) (client, server *conn) {
 	s := &session{
-		window: opts.StreamWindow,
-		slots:  make(chan struct{}, opts.MaxIncomingStreams),
-		accept: make(chan *stream, opts.MaxIncomingStreams),
-		done:   make(chan struct{}),
+		window:   opts.StreamWindow,
+		slots:    make(chan struct{}, opts.MaxIncomingStreams),
+		accept:   make(chan *stream, opts.MaxIncomingStreams),
+		released: make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 	for side := range s.ends {
 		ctx, cancel := context.WithCancelCause(context.Background())
@@ -187,7 +192,7 @@ func (c *conn) OpenStream(ctx context.Context) (transport.Stream, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	clientEnd, serverEnd := newStreamPair(c.s, func() { <-c.s.slots })
+	clientEnd, serverEnd := newStreamPair(c.s, c.s.release)
 	c.s.accept <- serverEnd
 	return clientEnd, nil
 }
@@ -208,6 +213,36 @@ func (c *conn) AcceptStream(ctx context.Context) (transport.Stream, error) {
 		return nil, c.s.errFor(c.side)
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+// release gives the slot of a finished stream back.
+func (s *session) release() {
+	<-s.slots
+	s.mu.Lock()
+	close(s.released)
+	s.released = make(chan struct{})
+	s.mu.Unlock()
+}
+
+// Drain waits until no stream holds a slot: every stream is done in both
+// directions, read up to FIN or reset, and accepted. Unlike QUIC, mem knows
+// exactly that the peer has read everything.
+func (c *conn) Drain(ctx context.Context) error {
+	for {
+		c.s.mu.Lock()
+		released := c.s.released
+		c.s.mu.Unlock()
+		if len(c.s.slots) == 0 || isClosed(c.s.done) {
+			return nil
+		}
+		select {
+		case <-released:
+		case <-c.s.done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
