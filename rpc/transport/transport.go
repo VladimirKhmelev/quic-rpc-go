@@ -76,8 +76,14 @@ type Conn interface {
 	// AcceptStream waits for the next stream opened by the peer.
 	AcceptStream(ctx context.Context) (Stream, error)
 	// CloseWithError closes the connection; the peer sees code and reason
-	// in a remote *ConnError.
+	// in a remote *ConnError. It discards what the peer has not read yet:
+	// the peer's reads fail even on data that has arrived.
 	CloseWithError(code ErrorCode, reason string) error
+	// Drain waits until the peer has read what was written on the
+	// connection so far, as far as the transport can tell, so that
+	// CloseWithError loses nothing. It returns at once on a closed
+	// connection and returns ctx's error if ctx ends first.
+	Drain(ctx context.Context) error
 	// Context is canceled when the connection closes; its cause is a
 	// *ConnError. It is canceled before CloseWithError returns and before
 	// any method of the connection or of its streams returns a *ConnError,

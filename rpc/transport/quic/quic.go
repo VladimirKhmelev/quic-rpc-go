@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go"
 
@@ -187,6 +188,30 @@ func (c *conn) CloseWithError(code transport.ErrorCode, reason string) error {
 }
 
 func (c *conn) Context() context.Context { return c.ctx }
+
+// maxAckDelay is the max_ack_delay that quic-go announces, the default of
+// RFC 9000: a peer may wait that long before it acknowledges.
+const maxAckDelay = 25 * time.Millisecond
+
+// Drain waits three probe timeouts (RFC 9002, section 6.2.1) of the
+// connection: long enough for data that quic-go has sent to arrive even
+// after two retransmissions. quic-go does not tell when the peer has
+// acknowledged everything, and the peer's application must have read the
+// data by then, as a client waiting for its answer does.
+func (c *conn) Drain(ctx context.Context) error {
+	st := c.qc.ConnectionStats()
+	pto := st.SmoothedRTT + max(4*st.MeanDeviation, time.Millisecond) + maxAckDelay
+	timer := time.NewTimer(3 * pto)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-c.ctx.Done():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // convert is convertError that also cancels the connection context when err
 // reports the connection closed.

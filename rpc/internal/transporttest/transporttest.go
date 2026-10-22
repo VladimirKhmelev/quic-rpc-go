@@ -42,6 +42,8 @@ func Run(t *testing.T, newTransport Factory) {
 		{"ServerCannotOpenStreams", testServerCannotOpenStreams},
 		{"AcceptStreamHonorsContext", testAcceptStreamHonorsContext},
 		{"CloseWithError", testCloseWithError},
+		{"DrainDelivers", testDrainDelivers},
+		{"DrainHonorsContext", testDrainHonorsContext},
 		{"ConnErrorCancelsContext", testConnErrorCancelsContext},
 		{"ListenerClose", testListenerClose},
 	}
@@ -431,6 +433,60 @@ func testCloseWithError(t *testing.T, f Factory) {
 	_, err = io.ReadAll(ss)
 	wantClosed(err, true, "server Read after peer close")
 	wantClosed(waitDone(t, ss, "server stream"), true, "server stream context cause")
+}
+
+// testDrainDelivers: after Drain the server may close the connection
+// without the client losing what it was sent, as a server that stops
+// gently does once its calls are done.
+func testDrainDelivers(t *testing.T, f Factory) {
+	client, server := Pair(t, f, 10)
+	cs := open(t, client)
+	write(t, cs, []byte("call"))
+	closeStream(t, cs)
+	ss := accept(t, server)
+	if got := readAll(t, ss); string(got) != "call" {
+		t.Fatalf("server read %q", got)
+	}
+	answer := Pattern(100<<10, 1)
+	got := make(chan []byte, 1)
+	go func() {
+		b, err := io.ReadAll(cs)
+		if err != nil {
+			t.Errorf("client read: %v", err)
+		}
+		got <- b
+	}()
+	write(t, ss, answer)
+	closeStream(t, ss)
+	if err := server.Drain(Context(t)); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if err := server.CloseWithError(transport.NoError, ""); err != nil {
+		t.Fatal(err)
+	}
+	if b := <-got; !bytes.Equal(b, answer) {
+		t.Fatalf("client read %d bytes, want %d", len(b), len(answer))
+	}
+	// On a closed connection Drain returns at once.
+	if err := server.Drain(Context(t)); err != nil {
+		t.Errorf("Drain after close: %v", err)
+	}
+}
+
+// testDrainHonorsContext: Drain returns ctx's error if ctx ends first. mem
+// waits here for the client to read, QUIC for three probe timeouts, at
+// least 75 ms; both outlast a context of 20 ms.
+func testDrainHonorsContext(t *testing.T, f Factory) {
+	client, server := Pair(t, f, 10)
+	cs := open(t, client)
+	write(t, cs, []byte("call"))
+	ss := accept(t, server)
+	write(t, ss, []byte("unread"))
+	ctx, cancel := context.WithTimeout(Context(t), 20*time.Millisecond)
+	defer cancel()
+	if err := server.Drain(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Drain with unread data: %v", err)
+	}
 }
 
 // testConnErrorCancelsContext checks that the connection context is done by

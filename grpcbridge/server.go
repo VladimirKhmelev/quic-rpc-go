@@ -3,6 +3,7 @@ package grpcbridge
 import (
 	"context"
 	"errors"
+	"time"
 
 	"google.golang.org/grpc"
 	grpcmetadata "google.golang.org/grpc/metadata"
@@ -16,9 +17,10 @@ import (
 // Server is a server of quic-rpc-go for services that code generated for
 // grpc-go registers.
 type Server struct {
-	s     *rpc.Server
-	unary grpc.UnaryServerInterceptor
-	stats handlers
+	s           *rpc.Server
+	unary       grpc.UnaryServerInterceptor
+	stats       handlers
+	stopTimeout time.Duration
 }
 
 var _ grpc.ServiceRegistrar = (*Server)(nil)
@@ -27,8 +29,20 @@ var _ grpc.ServiceRegistrar = (*Server)(nil)
 type ServerOption func(*serverOptions)
 
 type serverOptions struct {
-	unary []grpc.UnaryServerInterceptor
-	stats handlers
+	unary       []grpc.UnaryServerInterceptor
+	stats       handlers
+	stopTimeout time.Duration
+}
+
+// DefaultGracefulStopTimeout is how long GracefulStop waits by default:
+// half of the 10 s that docker waits after SIGTERM before it kills the
+// process, which also stops its gRPC server meanwhile.
+const DefaultGracefulStopTimeout = 5 * time.Second
+
+// GracefulStopTimeout sets how long GracefulStop waits for the calls in
+// flight before it stops the server at once.
+func GracefulStopTimeout(d time.Duration) ServerOption {
+	return func(o *serverOptions) { o.stopTimeout = d }
 }
 
 // ChainUnaryInterceptor adds interceptors to unary calls. The first is the
@@ -51,11 +65,11 @@ func StatsHandler(h stats.Handler) ServerOption {
 
 // NewServer returns a server with no services registered.
 func NewServer(opts ...ServerOption) *Server {
-	var o serverOptions
+	o := serverOptions{stopTimeout: DefaultGracefulStopTimeout}
 	for _, opt := range opts {
 		opt(&o)
 	}
-	return &Server{s: rpc.NewServer(), unary: chainUnaryServer(o.unary), stats: o.stats}
+	return &Server{s: rpc.NewServer(), unary: chainUnaryServer(o.unary), stats: o.stats, stopTimeout: o.stopTimeout}
 }
 
 // chainUnaryServer makes one interceptor of several, the first outermost;
@@ -114,9 +128,9 @@ func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl any) {
 	s.s.RegisterService(d, impl)
 }
 
-// Serve accepts connections on l and serves them until Stop; see
-// rpc.Server.Serve. Called after Stop, it returns grpc.ErrServerStopped, as
-// grpc-go does.
+// Serve accepts connections on l and serves them until Stop or
+// GracefulStop, and returns nil then; see rpc.Server.Serve. Called after
+// them, it returns grpc.ErrServerStopped, as grpc-go does.
 func (s *Server) Serve(l transport.Listener) error {
 	err := s.s.Serve(l)
 	if errors.Is(err, rpc.ErrServerStopped) {
@@ -128,6 +142,18 @@ func (s *Server) Serve(l transport.Listener) error {
 // Stop closes the listeners and the connections at once; calls in flight
 // fail with Unavailable on the client.
 func (s *Server) Stop() { s.s.Stop() }
+
+// GracefulStop stops the server gently, as rpc.Server.GracefulStop does: it
+// takes no more connections, lets the calls in flight finish and the
+// clients read their answers, and waits at most the timeout of
+// GracefulStopTimeout. Unlike grpc-go's, it cannot yet tell the clients to
+// send their calls elsewhere, so the calls they make meanwhile on their
+// connections are served too.
+func (s *Server) GracefulStop() {
+	ctx, cancel := context.WithTimeout(context.Background(), s.stopTimeout)
+	defer cancel()
+	s.s.GracefulStop(ctx)
+}
 
 // serverStream is a stream of quic-rpc-go as grpc-go's generated handlers
 // use it.
