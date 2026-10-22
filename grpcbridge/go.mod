@@ -1,11 +1,11 @@
 module github.com/VladimirKhmelev/quic-rpc-go/grpcbridge
 
-go 1.26.8
+go 1.26.3
 
 replace github.com/VladimirKhmelev/quic-rpc-go/rpc => ../rpc
 
 require (
-	github.com/VladimirKhmelev/quic-rpc-go/rpc v0.0.0-00010101000000-000000000000
+	github.com/VladimirKhmelev/quic-rpc-go/rpc v0.1.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0

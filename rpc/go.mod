@@ -1,6 +1,6 @@
 module github.com/VladimirKhmelev/quic-rpc-go/rpc
 
-go 1.26.8
+go 1.26.3
 
 require (
 	github.com/quic-go/quic-go v0.63.0

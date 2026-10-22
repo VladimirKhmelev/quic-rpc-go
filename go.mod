@@ -11,7 +11,7 @@ tool google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
 require (
 	github.com/VladimirKhmelev/quic-rpc-go/grpcbridge v0.0.0-00010101000000-000000000000
-	github.com/VladimirKhmelev/quic-rpc-go/rpc v0.0.0-00010101000000-000000000000
+	github.com/VladimirKhmelev/quic-rpc-go/rpc v0.1.0
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.47.0
 	google.golang.org/grpc v1.84.0

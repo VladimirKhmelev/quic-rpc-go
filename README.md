@@ -29,6 +29,17 @@ RPC для Go поверх нативных потоков QUIC ([quic-go](https
 
 Это отдельная работа: в методику сравнения из фаз 1–5 она не входит.
 
+## Установка
+
+Нужен Go 1.26.3 или новее. Модули версионируются отдельно, версии v0.x: до конца фазы 3 API может меняться.
+
+```sh
+go get github.com/VladimirKhmelev/quic-rpc-go/rpc@v0.1.0          # библиотека
+go get github.com/VladimirKhmelev/quic-rpc-go/grpcbridge@v0.1.0   # код grpc-go поверх quic-rpc-go
+```
+
+`grpcbridge` подставляет quic-rpc-go под клиенты и серверы, сгенерированные protoc-gen-go-grpc; пример — в документации пакета.
+
 ## Генерация кода
 
 Клиенты и серверы генерирует плагин `protoc-gen-rpcquic`. Код ложится в подпакет `<пакет>quic` (например, `chatv1quic`) с теми же именами, что у protoc-gen-go-grpc, поэтому оба генератора можно запускать на одном `.proto`.
