@@ -1,0 +1,25 @@
+# The pilot series (phase 2): a small matrix to check the method, the
+# thresholds of the hypotheses and the load before the main series.
+#   make bench-pilot
+#
+# Every variant runs on every network and load, repeats times; the runs of
+# a repeat share its seed. The networks are profiles of profiles.yaml or
+# points of points.yaml; the runs of drift open and close the series.
+# Fields:
+#   name       names the directory of the series
+#   seed       shuffles the order of the runs
+#   variants   a name, a transport (quic or grpc-h2) and a TCP setup of the
+#              end hosts (aligned or default, NET-6)
+#   warmup, duration   of every run
+name: pilot
+seed: 1
+repeats: 10
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+  - {name: grpc-h2-tcp-default, transport: grpc-h2, tcp: default}
+networks: [base, loss-1, loss-2, loss-5, rtt-150, interregion]
+loads: [small, small-heavy]
+drift: base

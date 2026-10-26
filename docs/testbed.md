@@ -1,6 +1,6 @@
 # Стенд эмуляции сети
 
-Стенд воспроизводит плохую сеть между клиентом и сервером на одной Linux-машине: три network namespace, соединённые парами veth, и `tc netem` на маршрутизаторе. Код — в [`testbed/netns`](../testbed/netns), самопроверка — в [`testbed/selfcheck`](../testbed/selfcheck), профили сети — в [`testbed/scenarios/profiles.yaml`](../testbed/scenarios/profiles.yaml).
+Стенд воспроизводит плохую сеть между клиентом и сервером на одной Linux-машине: три network namespace, соединённые парами veth, и `tc netem` на маршрутизаторе. Код — в [`testbed/netns`](../testbed/netns), самопроверка — в [`testbed/selfcheck`](../testbed/selfcheck), профили сети — в [`testbed/scenarios/profiles.yaml`](../testbed/scenarios/profiles.yaml), точки блока 1 — в [`testbed/scenarios/points.yaml`](../testbed/scenarios/points.yaml).
 
 ## Топология
 
@@ -22,7 +22,7 @@ Root не нужен:
 
 ```sh
 make testbed-shell PROFILE=interregion            # шелл внутри стенда
-make testbed-check                                # самопроверка всех профилей, около 2,5 минуты
+make testbed-check                                # самопроверка всех профилей и точек, около 11 минут
 go run ./testbed/cmd/testbed run -profile congested -- ./bench.sh
 go run ./testbed/cmd/testbed run -profile congested -tcp default -- ./bench.sh   # TCP по умолчанию
 go run ./testbed/cmd/testbed check -profile degraded -strict -json report.json
@@ -59,6 +59,8 @@ echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d
 | `outage` | обрывы связи: `{duration: 2s, every: 60s}` — на 2 с каждые 60 с |
 
 Значения профилей пока предварительные и уточняются после пилота (фаза 2). Профиль `none` — без воздействий.
+
+Точки блока 1 (EXP-2) задаются в том же формате в `points.yaml` и применяются по имени так же, как профили: `base` — базовая точка (RTT 50 мс, полоса 100 Мбит/с, очередь 1 BDP), остальные меняют одно воздействие: `loss-0p5` … `loss-5` (равномерные потери), `burst-0p5` … `burst-5` (пачками), `rtt-20` и `rtt-150`, `jitter-10`, `reorder-1` … `reorder-10`, `rate-1` и `rate-10`. Очередь узкого места остаётся 1 BDP при базовом RTT, но не меньше 10 пакетов. Джиттера 30 мс из таблицы требований пока нет: он больше задержки в одну сторону у базовой точки (25 мс), и стенд такой профиль не принимает — netem обрезал бы нулём пятую часть нормально распределённых задержек. Ось джиттера уточняется по итогам пилота.
 
 ## Как устроены воздействия
 

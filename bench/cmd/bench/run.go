@@ -71,18 +71,15 @@ func (r *runner) parse() (int, error) {
 	if r.tcp, err = netns.ParseTCP(r.c.tcp); err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
-	data, err := readFileOr(r.c.profiles, scenarios.Profiles)
-	if err != nil {
-		return 1, err
-	}
-	networks, err := netns.ParseProfiles(data)
+	networks, err := networkProfiles(r.c.profiles)
 	if err != nil {
 		return 1, err
 	}
 	if r.network, err = netns.Lookup(networks, r.c.network); err != nil {
 		return 1, err
 	}
-	if data, err = readFileOr(r.c.loads, scenarios.Loads); err != nil {
+	data, err := readFileOr(r.c.loads, scenarios.Loads)
+	if err != nil {
 		return 1, err
 	}
 	loads, err := loadgen.ParseProfiles(data)

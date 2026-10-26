@@ -9,6 +9,8 @@
 //	bench run -transport quic|grpc-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
 //	          [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
 //	          [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-out DIR]
+//	bench series -matrix FILE [-out DIR] [-strict] [-check=false] [-dry-run]
+//	             [-bench BIN] [-testbed BIN]
 //
 // certs issues a throwaway CA and a server certificate into DIR, for the
 // server and its clients to share. server answers the calls of the
@@ -29,8 +31,8 @@
 //
 // run makes one run of the benchmark in the network testbed (Linux only,
 // no root; see docs/testbed.md): it builds the testbed with the network
-// profile -profile of testbed/scenarios/profiles.yaml (or of -profiles
-// FILE) and the TCP setup -tcp, starts the server in namespace server on
+// profile -profile of testbed/scenarios/profiles.yaml or points.yaml (or of
+// -profiles FILE) and the TCP setup -tcp, starts the server in namespace server on
 // CPUs -server-cpus and the load generator with load profile -load in
 // namespace client on CPUs -client-cpus, both with GOMAXPROCS=-gomaxprocs
 // and GSO of quic-go off (NET-5). The outages of the network profile start
@@ -40,6 +42,18 @@
 // out/TIME-TRANSPORT-NETWORK-LOAD-sSEED; data/schema.md describes the
 // files. With -strict it refuses to run on a machine not tuned for a
 // series. An empty CPU list leaves a process unpinned.
+//
+// series makes the runs of the matrix FILE, such as
+// testbed/scenarios/pilot.yaml (EXP-2, EXP-5): every variant on every
+// network and load, in an order shuffled by the seed of the matrix, each
+// with bench run into a directory of the series, by default
+// out/TIME-NAME. It first checks the testbed against every network of the
+// series with testbed check (NET-4), unless -check=false; the testbed
+// command is BIN of -testbed, by default testbed next to bench. A run that
+// fails is set aside in failed/ and the series goes on. Run again with -out
+// DIR, a series resumes: it skips the runs done and makes the others
+// (EXP-8). series.json in DIR holds the plan. -strict goes to the checks and
+// the runs; -dry-run prints the plan and stops.
 package main
 
 import (
@@ -68,6 +82,8 @@ const usage = `usage:
   bench run -transport quic|grpc-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
             [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
             [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-out DIR]
+  bench series -matrix FILE [-out DIR] [-strict] [-check=false] [-dry-run]
+               [-bench BIN] [-testbed BIN]
 `
 
 func main() {
@@ -163,6 +179,22 @@ func run(args []string) (int, error) {
 			return 2, fmt.Errorf("%w: run needs -transport and -load", errUsage)
 		}
 		return benchRun(c)
+	case "series":
+		var c seriesConfig
+		fs.StringVar(&c.matrix, "matrix", "", "run the series of `FILE`")
+		fs.StringVar(&c.out, "out", "", "keep the series in `DIR`; a series already there resumes")
+		fs.BoolVar(&c.strict, "strict", false, "refuse to run on a machine not tuned for a series (NET-5)")
+		fs.BoolVar(&c.check, "check", true, "check the testbed against every network of the series first (NET-4)")
+		fs.BoolVar(&c.dryRun, "dry-run", false, "print the plan of the series and stop")
+		fs.StringVar(&c.bench, "bench", "", "make the runs with the bench command `BIN`, this one by default")
+		fs.StringVar(&c.testbed, "testbed", "", "check with the testbed command `BIN`, testbed next to bench by default")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2, nil // flag has printed the error
+		}
+		if c.matrix == "" || fs.NArg() != 0 {
+			return 2, fmt.Errorf("%w: series needs -matrix", errUsage)
+		}
+		return benchSeries(c)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return 2, nil
@@ -250,6 +282,19 @@ func serve(t common.Transport, addr, certsDir string) (int, error) {
 	<-stop
 	srv.Stop()
 	return 0, nil
+}
+
+// networkProfiles reads the network profiles of file, or the bundled ones:
+// the profiles and the points of block 1.
+func networkProfiles(file string) ([]netns.Profile, error) {
+	if file == "" {
+		return netns.ParseProfiles(scenarios.Profiles, scenarios.Points)
+	}
+	data, err := os.ReadFile(file) //nolint:gosec // the file the user named
+	if err != nil {
+		return nil, err
+	}
+	return netns.ParseProfiles(data)
 }
 
 func readFileOr(file string, bundled []byte) ([]byte, error) {

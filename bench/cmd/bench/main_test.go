@@ -20,10 +20,13 @@ import (
 )
 
 // TestMain runs main instead of the tests when the test binary is started
-// as the command.
+// as the command, or stands for the commands of a series (fakeCommand).
 func TestMain(m *testing.M) {
 	if os.Getenv("BENCH_AS_COMMAND") == "1" {
 		main()
+	}
+	if os.Getenv(fakeLog) != "" {
+		fakeCommand()
 	}
 	_ = os.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "true")
 	os.Exit(m.Run())
