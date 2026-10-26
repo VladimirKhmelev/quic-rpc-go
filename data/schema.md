@@ -33,6 +33,22 @@
 | `created` | когда серия началась |
 | `runs` | прогоны в порядке выполнения: `id` — имя каталога (номер, вариант, сеть, нагрузка и `r<повтор>` или роль), `variant`, `transport`, `tcp`, `network`, `load`, `repeat` (с 1, у прогонов дрейфа 0), `seed`, `role` (`drift-start`, `drift-end` или нет) |
 
+## Таблицы анализа
+
+`make plots` ([методика](../docs/methodology.md#анализ-exp-7-anl-1anl-3)) кладёт в каталог анализа:
+
+| Файл | Строка | Что в ней |
+| --- | --- | --- |
+| `runs.csv` | прогон | из `series.json`: `run_id`, `variant`, `transport`, `tcp`, `network`, `load`, `repeat`, `seed`, `role`; сеть: `rtt_ms`, `jitter_ms`, `loss_pct`, `loss_burst`, `reorder_pct`, `rate_bps`, `queue_bdp`; из `meta.json`: `warmup_ns`, `measure_ns`, `window_ns`, CPU процессов `server_cpu_ns` и `client_cpu_ns` (user + system), занятость их ядер `server_cores_busy_ns` и `client_cores_busy_ns` (всё, кроме idle и iowait), `sent_bytes_per_s`, `received_bytes_per_s`, `in_flight_mean`, `in_flight_max`, `tls`, `problems` (число отличий машины от NET-5), `commit`, `dirty` |
+| `calls.parquet` | вызов | колонки `calls.csv` и `run_id`; сжатие zstd |
+| `summary.csv` | прогон и вид вызова | колонки `runs.csv` и `kind`, `count`, `errors`, `error_pct`, `p50`, `p95`, `p99` (мс) за окно измерения |
+| `cells.csv` | ячейка | `network`, `load`, `kind`, `variant`, `runs`, `error_pct` (средняя по прогонам) и по каждому перцентилю медиана по прогонам и её интервал: `p99`, `p99_lo`, `p99_hi` и т. д. |
+| `comparisons.csv` | ячейка без варианта, пара вариантов, перцентиль | `quic`, `other`, `metric`, `runs_quic`, `runs_other`, `median_quic`, `median_other`, `effect_pct` и интервал `effect_lo_pct`, `effect_hi_pct`, статистика `u`, `p` и `p_holm` |
+| `spread.csv` | ячейка | `metric`, `runs`, `cv`, `s_log`, `runs_for_5pct`, `runs_for_10pct`, `runs_for_20pct` |
+| `warmup.csv` | прогон и вид вызова | колонки `runs.csv`, `kind`, `head_ratio` |
+| `drift.csv` | вариант, нагрузка и вид вызова | по каждому перцентилю значения в начале и в конце серии и изменение: `p99_start`, `p99_end`, `p99_change_pct` и т. д. |
+| `report.md`, `fig*.png` | — | сводка главных чисел и рисунки |
+
 ## calls.csv
 
 Одна строка на вызов, сообщение bidi-стрима или установку соединения (GEN-4). Пишет `bench load`, строки идут в порядке расписания.
