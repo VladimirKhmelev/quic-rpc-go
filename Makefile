@@ -23,6 +23,13 @@ SERIESFLAGS ?=
 # CPUs of the orchestrator of bench-run and bench-series, the E-cores of the
 # reference machine; empty leaves it unpinned.
 ORCH_CPUS ?= 8-11
+# Series of plots and the directory of its tables and figures; with ANALYSIS
+# alone, plots works from the runs.csv and calls.parquet already there.
+SERIES   ?=
+ANALYSIS ?= $(if $(SERIES),$(SERIES)/analysis)
+# The Python of the analysis, with the packages of requirements.txt.
+VENV      := .venv
+PLOTS_RUN := PYTHONPATH=analysis/plots $(VENV)/bin/python
 
 PROTOC_GEN_GO      := $(CURDIR)/bin/protoc-gen-go
 PROTOC_GEN_GO_GRPC := $(CURDIR)/bin/protoc-gen-go-grpc
@@ -38,7 +45,7 @@ ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
 PLUGIN_PROTOS   := echo/v1/echo.proto
 
-.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run bench-series bench-pilot
+.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run bench-series bench-pilot plots plots-test
 
 all: check
 
@@ -88,6 +95,22 @@ bench-series:
 bench-pilot: MATRIX = testbed/scenarios/pilot.yaml
 bench-pilot: override SERIESFLAGS += -strict
 bench-pilot: bench-series
+
+# The tables, figures and report.md of a series (ANL-1, see data/schema.md):
+# runs.csv and calls.parquet from the runs of SERIES, then the statistics
+# and the figures from them, all into ANALYSIS.
+plots: $(VENV)/.installed
+	@test -n "$(ANALYSIS)" || { echo "plots needs SERIES=DIR or ANALYSIS=DIR"; exit 2; }
+	$(if $(SERIES),$(PLOTS_RUN) -m qrpcplots ingest $(SERIES) -o $(ANALYSIS))
+	$(PLOTS_RUN) -m qrpcplots report $(ANALYSIS)
+
+plots-test: $(VENV)/.installed
+	$(PLOTS_RUN) -m pytest -q analysis/plots
+
+$(VENV)/.installed: analysis/plots/requirements.txt
+	python3 -m venv $(VENV)
+	$(VENV)/bin/pip install -q -r analysis/plots/requirements.txt
+	touch $@
 
 # Tune the machine for a series (NET-5) and put it back; run with sudo.
 host-setup:
