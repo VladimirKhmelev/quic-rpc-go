@@ -179,28 +179,33 @@ func (p Profile) Validate() error {
 }
 
 // ParseProfiles reads profiles in the format of
-// testbed/scenarios/profiles.yaml. Unknown fields are errors, and every
-// profile must be valid and have a unique name.
-func ParseProfiles(data []byte) ([]Profile, error) {
-	var file struct {
-		Profiles []Profile `yaml:"profiles"`
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&file); err != nil {
-		return nil, fmt.Errorf("profiles: %w", err)
-	}
+// testbed/scenarios/profiles.yaml from one file or more. Unknown fields are
+// errors, and every profile must be valid and have a name unique across the
+// files.
+func ParseProfiles(files ...[]byte) ([]Profile, error) {
+	var all []Profile
 	seen := map[string]bool{}
-	for _, p := range file.Profiles {
-		if err := p.Validate(); err != nil {
-			return nil, err
+	for _, data := range files {
+		var file struct {
+			Profiles []Profile `yaml:"profiles"`
 		}
-		if seen[p.Name] {
-			return nil, fmt.Errorf("profile %q is defined twice", p.Name)
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&file); err != nil {
+			return nil, fmt.Errorf("profiles: %w", err)
 		}
-		seen[p.Name] = true
+		for _, p := range file.Profiles {
+			if err := p.Validate(); err != nil {
+				return nil, err
+			}
+			if seen[p.Name] {
+				return nil, fmt.Errorf("profile %q is defined twice", p.Name)
+			}
+			seen[p.Name] = true
+		}
+		all = append(all, file.Profiles...)
 	}
-	return file.Profiles, nil
+	return all, nil
 }
 
 // Lookup returns the profile with the given name; "none" is None.

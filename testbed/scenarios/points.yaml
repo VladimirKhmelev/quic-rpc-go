@@ -1,0 +1,132 @@
+# The points of block 1 (EXP-2): one impairment at a time, the others at
+# the base point, applied by name like the profiles of profiles.yaml:
+#   go run ./testbed/cmd/testbed shell -profile loss-2
+#
+# The base point is rtt 50ms, no loss, jitter or reordering, and 100Mbit
+# with a queue of 1 BDP. The bottleneck queue stays 1 BDP at the base rtt,
+# but no less than 10 packets: its queue_bdp is relative to the point's own
+# rtt and rate, so it differs where those differ. Losses in bursts have a
+# mean burst of 4 packets. The fields are those of profiles.yaml.
+#
+# Jitter 30ms of the requirements is missing: it exceeds the one-way delay
+# of the base point, 25ms, and the testbed refuses that, since netem would
+# cut a fifth of the normally distributed delays at zero. The jitter axis is
+# settled after the pilot.
+profiles:
+  - name: base
+    description: Базовая точка
+    rtt: 50ms
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: loss-0p5
+    description: Потери 0,5%
+    rtt: 50ms
+    loss: 0.5%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: loss-1
+    description: Потери 1%
+    rtt: 50ms
+    loss: 1%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: loss-2
+    description: Потери 2%
+    rtt: 50ms
+    loss: 2%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: loss-5
+    description: Потери 5%
+    rtt: 50ms
+    loss: 5%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: burst-0p5
+    description: Потери 0,5% пачками
+    rtt: 50ms
+    loss: 0.5%
+    loss_burst: 4
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: burst-1
+    description: Потери 1% пачками
+    rtt: 50ms
+    loss: 1%
+    loss_burst: 4
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: burst-2
+    description: Потери 2% пачками
+    rtt: 50ms
+    loss: 2%
+    loss_burst: 4
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: burst-5
+    description: Потери 5% пачками
+    rtt: 50ms
+    loss: 5%
+    loss_burst: 4
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: rtt-20
+    description: RTT 20 мс
+    rtt: 20ms
+    rate: 100Mbit
+    queue_bdp: 2.5
+
+  - name: rtt-150
+    description: RTT 150 мс
+    rtt: 150ms
+    rate: 100Mbit
+    queue_bdp: 0.333333
+
+  - name: jitter-10
+    description: Джиттер 10 мс
+    rtt: 50ms
+    jitter: 10ms
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: reorder-1
+    description: Переупорядочивание 1%
+    rtt: 50ms
+    reorder: 1%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: reorder-5
+    description: Переупорядочивание 5%
+    rtt: 50ms
+    reorder: 5%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: reorder-10
+    description: Переупорядочивание 10%
+    rtt: 50ms
+    reorder: 10%
+    rate: 100Mbit
+    queue_bdp: 1
+
+  - name: rate-1
+    description: Полоса 1 Мбит/с
+    rtt: 50ms
+    rate: 1Mbit
+    queue_bdp: 2.4
+
+  - name: rate-10
+    description: Полоса 10 Мбит/с
+    rtt: 50ms
+    rate: 10Mbit
+    queue_bdp: 1

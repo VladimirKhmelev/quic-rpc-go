@@ -155,6 +155,20 @@ func TestParseProfilesRejects(t *testing.T) {
 	}
 }
 
+// TestParseProfilesFiles: profiles come from several files, with names
+// unique across them.
+func TestParseProfilesFiles(t *testing.T) {
+	a := []byte("profiles:\n  - name: a\n    rtt: 1ms\n")
+	b := []byte("profiles:\n  - name: b\n    rtt: 2ms\n")
+	profiles, err := ParseProfiles(a, b)
+	if err != nil || len(profiles) != 2 || profiles[0].Name != "a" || profiles[1].RTT != 2*time.Millisecond {
+		t.Errorf("ParseProfiles(a, b) = %+v, %v", profiles, err)
+	}
+	if _, err := ParseProfiles(a, a); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Errorf("a profile in two files: %v", err)
+	}
+}
+
 func TestLookup(t *testing.T) {
 	profiles := []Profile{{Name: "a"}, {Name: "b"}}
 	if p, err := Lookup(profiles, "b"); err != nil || p.Name != "b" {
