@@ -8,7 +8,7 @@ FUZZ_OVERRIDES ?= FuzzServerStream=100000x FuzzClientResponse=100000x
 # Flags for go test besides -count=1; CI also runs the tests with -cpu=1.
 TESTFLAGS ?= -race
 # Network profile of testbed-shell and bench-run, from
-# testbed/scenarios/profiles.yaml.
+# testbed/scenarios/profiles.yaml or points.yaml.
 PROFILE ?= none
 # Transport, load profile (testbed/scenarios/load.yaml) and seed of
 # bench-run, and more flags of bench run, such as -strict.
@@ -16,8 +16,12 @@ TRANSPORT ?= quic
 LOAD      ?= small
 SEED      ?= 1
 RUNFLAGS  ?=
-# CPUs of the orchestrator of bench-run, the E-cores of the reference
-# machine; empty leaves it unpinned.
+# Matrix of bench-series and more flags of bench series, such as -out DIR
+# to resume a series.
+MATRIX      ?= testbed/scenarios/pilot.yaml
+SERIESFLAGS ?=
+# CPUs of the orchestrator of bench-run and bench-series, the E-cores of the
+# reference machine; empty leaves it unpinned.
 ORCH_CPUS ?= 8-11
 
 PROTOC_GEN_GO      := $(CURDIR)/bin/protoc-gen-go
@@ -34,7 +38,7 @@ ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
 PLUGIN_PROTOS   := echo/v1/echo.proto
 
-.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run
+.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run bench-series bench-pilot
 
 all: check
 
@@ -62,7 +66,8 @@ fuzz:
 testbed-shell:
 	go run ./testbed/cmd/testbed shell -profile $(PROFILE)
 
-# The self-check of every profile (NET-4), about 2.5 minutes; needs iperf3.
+# The self-check of every profile and point (NET-4), about 11 minutes;
+# needs iperf3.
 testbed-check:
 	go run ./testbed/cmd/testbed check -all -v
 
@@ -71,6 +76,18 @@ testbed-check:
 bench-run:
 	go build -o bin/bench ./bench/cmd/bench
 	$(if $(ORCH_CPUS),taskset -c $(ORCH_CPUS)) bin/bench run -transport $(TRANSPORT) -profile $(PROFILE) -load $(LOAD) -seed $(SEED) $(RUNFLAGS)
+
+# A series of runs into out/ (see data/schema.md): every run of MATRIX,
+# after a self-check of the testbed against its networks.
+bench-series:
+	go build -o bin/bench ./bench/cmd/bench
+	go build -o bin/testbed ./testbed/cmd/testbed
+	$(if $(ORCH_CPUS),taskset -c $(ORCH_CPUS)) bin/bench series -matrix $(MATRIX) $(SERIESFLAGS)
+
+# The pilot series (phase 2), on a machine tuned with host-setup.
+bench-pilot: MATRIX = testbed/scenarios/pilot.yaml
+bench-pilot: override SERIESFLAGS += -strict
+bench-pilot: bench-series
 
 # Tune the machine for a series (NET-5) and put it back; run with sudo.
 host-setup:
