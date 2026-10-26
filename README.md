@@ -58,11 +58,11 @@ protoc --go_out=. --go_opt=paths=source_relative \
 - [Протокол](docs/protocol.md): кадры, порядок кадров в вызове, коды ошибок, соответствие gRPC.
 - [Стенд](docs/testbed.md): топология, профили сети, как устроены воздействия, самопроверка.
 - [Методика](docs/methodology.md): выравнивание TCP и QUIC, нагрузка, окружение серий, прогон, серия.
-- [Схема данных](data/schema.md): формат сырых данных прогонов и серий.
+- [Схема данных](data/schema.md): формат сырых данных прогонов и серий и таблиц анализа.
 
 ## Разработка
 
-Нужны Go 1.26 и golangci-lint 2.x. Репозиторий состоит из трёх модулей: библиотека `rpc/`, прослойка `grpcbridge/` для кода grpc-go и корневой модуль со стендом и эталонами.
+Нужны Go 1.26 и golangci-lint 2.x, для анализа — Python 3.12. Репозиторий состоит из трёх модулей: библиотека `rpc/`, прослойка `grpcbridge/` для кода grpc-go и корневой модуль со стендом и эталонами.
 
 ```sh
 make check   # gofmt, go mod tidy, сгенерированный код, go vet, линтер, тесты с -race
@@ -74,6 +74,8 @@ sudo make host-setup  # настроить машину для серии изм
 make bench-run TRANSPORT=quic PROFILE=interregion LOAD=small   # один прогон в стенде, результат в out/
 make bench-pilot     # пилотная серия на настроенной машине, около 4 часов, результат в out/
 make bench-series MATRIX=my.yaml SERIESFLAGS=-dry-run   # план серии по своей матрице
+make plots SERIES=out/…   # таблицы, рисунки и сводка серии в out/…/analysis
+make plots-test           # тесты анализа
 ```
 
 Тесты стенда создают network namespace без root. Ubuntu 24.04 по умолчанию это запрещает, как разрешить — в [описании стенда](docs/testbed.md#запуск). Без этого тесты стенда пропускаются.
