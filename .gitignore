@@ -1,6 +1,8 @@
 /bin/
 # Runs of the benchmarks, see data/schema.md.
 /out/
+# All calls of a published series, an attachment of the release.
+/data/*/calls.parquet
 *.test
 *.out
 *.prof

@@ -1,0 +1,3890 @@
+{
+  "matrix": {
+    "name": "pilot",
+    "seed": 1,
+    "repeats": 10,
+    "warmup_ns": 5000000000,
+    "duration_ns": 30000000000,
+    "variants": [
+      {
+        "name": "quic",
+        "transport": "quic",
+        "tcp": "aligned"
+      },
+      {
+        "name": "grpc-h2",
+        "transport": "grpc-h2",
+        "tcp": "aligned"
+      },
+      {
+        "name": "grpc-h2-tcp-default",
+        "transport": "grpc-h2",
+        "tcp": "default"
+      }
+    ],
+    "networks": [
+      "base",
+      "loss-1",
+      "loss-2",
+      "loss-5",
+      "rtt-150",
+      "interregion"
+    ],
+    "loads": [
+      "small",
+      "small-heavy"
+    ],
+    "drift": "base"
+  },
+  "networks": [
+    {
+      "name": "base",
+      "description": "Базовая точка",
+      "rtt_ns": 50000000,
+      "jitter_ns": 0,
+      "loss_pct": 0,
+      "loss_burst": 0,
+      "reorder_pct": 0,
+      "rate_bps": 100000000,
+      "queue_bdp": 1,
+      "outage": {
+        "duration_ns": 0,
+        "every_ns": 0
+      }
+    },
+    {
+      "name": "loss-5",
+      "description": "Потери 5%",
+      "rtt_ns": 50000000,
+      "jitter_ns": 0,
+      "loss_pct": 5,
+      "loss_burst": 0,
+      "reorder_pct": 0,
+      "rate_bps": 100000000,
+      "queue_bdp": 1,
+      "outage": {
+        "duration_ns": 0,
+        "every_ns": 0
+      }
+    },
+    {
+      "name": "rtt-150",
+      "description": "RTT 150 мс",
+      "rtt_ns": 150000000,
+      "jitter_ns": 0,
+      "loss_pct": 0,
+      "loss_burst": 0,
+      "reorder_pct": 0,
+      "rate_bps": 100000000,
+      "queue_bdp": 0.333333,
+      "outage": {
+        "duration_ns": 0,
+        "every_ns": 0
+      }
+    },
+    {
+      "name": "loss-2",
+      "description": "Потери 2%",
+      "rtt_ns": 50000000,
+      "jitter_ns": 0,
+      "loss_pct": 2,
+      "loss_burst": 0,
+      "reorder_pct": 0,
+      "rate_bps": 100000000,
+      "queue_bdp": 1,
+      "outage": {
+        "duration_ns": 0,
+        "every_ns": 0
+      }
+    },
+    {
+      "name": "interregion",
+      "description": "Межрегион",
+      "rtt_ns": 150000000,
+      "jitter_ns": 10000000,
+      "loss_pct": 0.5,
+      "loss_burst": 0,
+      "reorder_pct": 0,
+      "rate_bps": 100000000,
+      "queue_bdp": 1,
+      "outage": {
+        "duration_ns": 0,
+        "every_ns": 0
+      }
+    },
+    {
+      "name": "loss-1",
+      "description": "Потери 1%",
+      "rtt_ns": 50000000,
+      "jitter_ns": 0,
+      "loss_pct": 1,
+      "loss_burst": 0,
+      "reorder_pct": 0,
+      "rate_bps": 100000000,
+      "queue_bdp": 1,
+      "outage": {
+        "duration_ns": 0,
+        "every_ns": 0
+      }
+    }
+  ],
+  "loads": [
+    {
+      "name": "small",
+      "description": "Мелкие unary",
+      "small": {
+        "rate": 200,
+        "min_size": 100,
+        "max_size": 1000
+      }
+    },
+    {
+      "name": "small-heavy",
+      "description": "Мелкие рядом с тяжёлым вызовом",
+      "small": {
+        "rate": 200,
+        "min_size": 100,
+        "max_size": 1000
+      },
+      "heavy": {
+        "size": 1048576,
+        "every_ns": 1000000000
+      }
+    }
+  ],
+  "created": "2026-10-26T21:13:39Z",
+  "runs": [
+    {
+      "id": "000-quic-base-small-drift-start",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-start"
+    },
+    {
+      "id": "001-grpc-h2-tcp-default-base-small-drift-start",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-start"
+    },
+    {
+      "id": "002-grpc-h2-base-small-drift-start",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-start"
+    },
+    {
+      "id": "003-grpc-h2-tcp-default-base-small-heavy-drift-start",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-start"
+    },
+    {
+      "id": "004-quic-base-small-heavy-drift-start",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-start"
+    },
+    {
+      "id": "005-grpc-h2-base-small-heavy-drift-start",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-start"
+    },
+    {
+      "id": "006-grpc-h2-tcp-default-loss-5-small-heavy-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "007-quic-loss-5-small-heavy-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "008-grpc-h2-loss-5-small-heavy-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "009-grpc-h2-rtt-150-small-heavy-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "010-quic-rtt-150-small-heavy-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "011-grpc-h2-tcp-default-rtt-150-small-heavy-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "012-quic-loss-2-small-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "013-grpc-h2-tcp-default-loss-2-small-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "014-grpc-h2-loss-2-small-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "015-grpc-h2-interregion-small-heavy-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "016-quic-interregion-small-heavy-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "017-grpc-h2-tcp-default-interregion-small-heavy-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "018-quic-interregion-small-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "019-grpc-h2-interregion-small-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "020-grpc-h2-tcp-default-interregion-small-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "021-quic-loss-5-small-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "022-grpc-h2-loss-5-small-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "023-grpc-h2-tcp-default-loss-5-small-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "024-grpc-h2-loss-5-small-heavy-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "025-quic-loss-5-small-heavy-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "026-grpc-h2-tcp-default-loss-5-small-heavy-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "027-quic-loss-2-small-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "028-grpc-h2-loss-2-small-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "029-grpc-h2-tcp-default-loss-2-small-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "030-grpc-h2-base-small-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "031-quic-base-small-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "032-grpc-h2-tcp-default-base-small-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "033-grpc-h2-rtt-150-small-heavy-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "034-quic-rtt-150-small-heavy-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "035-grpc-h2-tcp-default-rtt-150-small-heavy-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "036-quic-base-small-heavy-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "037-grpc-h2-tcp-default-base-small-heavy-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "038-grpc-h2-base-small-heavy-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "039-grpc-h2-tcp-default-rtt-150-small-heavy-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "040-grpc-h2-rtt-150-small-heavy-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "041-quic-rtt-150-small-heavy-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "042-grpc-h2-loss-1-small-heavy-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "043-quic-loss-1-small-heavy-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "044-grpc-h2-tcp-default-loss-1-small-heavy-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "045-grpc-h2-base-small-heavy-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "046-grpc-h2-tcp-default-base-small-heavy-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "047-quic-base-small-heavy-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "048-quic-rtt-150-small-heavy-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "049-grpc-h2-rtt-150-small-heavy-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "050-grpc-h2-tcp-default-rtt-150-small-heavy-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "051-quic-loss-1-small-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "052-grpc-h2-loss-1-small-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "053-grpc-h2-tcp-default-loss-1-small-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "054-grpc-h2-tcp-default-loss-1-small-heavy-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "055-grpc-h2-loss-1-small-heavy-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "056-quic-loss-1-small-heavy-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "057-grpc-h2-tcp-default-loss-5-small-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "058-grpc-h2-loss-5-small-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "059-quic-loss-5-small-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "060-grpc-h2-tcp-default-loss-2-small-heavy-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "061-grpc-h2-loss-2-small-heavy-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "062-quic-loss-2-small-heavy-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "063-grpc-h2-tcp-default-loss-1-small-heavy-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "064-grpc-h2-loss-1-small-heavy-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "065-quic-loss-1-small-heavy-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "066-grpc-h2-tcp-default-base-small-heavy-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "067-grpc-h2-base-small-heavy-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "068-quic-base-small-heavy-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "069-grpc-h2-loss-1-small-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "070-quic-loss-1-small-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "071-grpc-h2-tcp-default-loss-1-small-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "072-grpc-h2-tcp-default-loss-5-small-heavy-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "073-quic-loss-5-small-heavy-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "074-grpc-h2-loss-5-small-heavy-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "075-grpc-h2-tcp-default-loss-2-small-heavy-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "076-grpc-h2-loss-2-small-heavy-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "077-quic-loss-2-small-heavy-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "078-quic-base-small-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "079-grpc-h2-tcp-default-base-small-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "080-grpc-h2-base-small-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "081-quic-loss-2-small-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "082-grpc-h2-tcp-default-loss-2-small-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "083-grpc-h2-loss-2-small-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "084-quic-rtt-150-small-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "085-grpc-h2-tcp-default-rtt-150-small-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "086-grpc-h2-rtt-150-small-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "087-grpc-h2-loss-2-small-heavy-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "088-grpc-h2-tcp-default-loss-2-small-heavy-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "089-quic-loss-2-small-heavy-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "090-grpc-h2-tcp-default-loss-5-small-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "091-quic-loss-5-small-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "092-grpc-h2-loss-5-small-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "093-grpc-h2-tcp-default-loss-5-small-heavy-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "094-grpc-h2-loss-5-small-heavy-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "095-quic-loss-5-small-heavy-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "096-grpc-h2-loss-1-small-heavy-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "097-quic-loss-1-small-heavy-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "098-grpc-h2-tcp-default-loss-1-small-heavy-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "099-grpc-h2-tcp-default-loss-5-small-heavy-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "100-grpc-h2-loss-5-small-heavy-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "101-quic-loss-5-small-heavy-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "102-grpc-h2-base-small-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "103-grpc-h2-tcp-default-base-small-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "104-quic-base-small-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "105-quic-loss-5-small-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "106-grpc-h2-tcp-default-loss-5-small-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "107-grpc-h2-loss-5-small-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "108-quic-loss-5-small-heavy-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "109-grpc-h2-tcp-default-loss-5-small-heavy-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "110-grpc-h2-loss-5-small-heavy-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "111-grpc-h2-rtt-150-small-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "112-quic-rtt-150-small-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "113-grpc-h2-tcp-default-rtt-150-small-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "114-grpc-h2-interregion-small-heavy-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "115-grpc-h2-tcp-default-interregion-small-heavy-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "116-quic-interregion-small-heavy-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "117-quic-loss-1-small-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "118-grpc-h2-loss-1-small-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "119-grpc-h2-tcp-default-loss-1-small-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "120-grpc-h2-loss-2-small-heavy-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "121-quic-loss-2-small-heavy-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "122-grpc-h2-tcp-default-loss-2-small-heavy-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "123-grpc-h2-tcp-default-loss-1-small-heavy-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "124-quic-loss-1-small-heavy-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "125-grpc-h2-loss-1-small-heavy-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "126-grpc-h2-interregion-small-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "127-quic-interregion-small-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "128-grpc-h2-tcp-default-interregion-small-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "129-quic-loss-5-small-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "130-grpc-h2-tcp-default-loss-5-small-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "131-grpc-h2-loss-5-small-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "132-grpc-h2-tcp-default-interregion-small-heavy-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "133-grpc-h2-interregion-small-heavy-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "134-quic-interregion-small-heavy-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "135-grpc-h2-tcp-default-base-small-heavy-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "136-quic-base-small-heavy-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "137-grpc-h2-base-small-heavy-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "138-grpc-h2-tcp-default-loss-5-small-heavy-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "139-grpc-h2-loss-5-small-heavy-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "140-quic-loss-5-small-heavy-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "141-grpc-h2-loss-2-small-heavy-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "142-quic-loss-2-small-heavy-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "143-grpc-h2-tcp-default-loss-2-small-heavy-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "144-grpc-h2-loss-1-small-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "145-grpc-h2-tcp-default-loss-1-small-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "146-quic-loss-1-small-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "147-grpc-h2-tcp-default-interregion-small-heavy-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "148-grpc-h2-interregion-small-heavy-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "149-quic-interregion-small-heavy-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "150-grpc-h2-tcp-default-interregion-small-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "151-quic-interregion-small-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "152-grpc-h2-interregion-small-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "153-quic-base-small-heavy-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "154-grpc-h2-tcp-default-base-small-heavy-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "155-grpc-h2-base-small-heavy-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "156-grpc-h2-tcp-default-loss-2-small-heavy-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "157-grpc-h2-loss-2-small-heavy-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "158-quic-loss-2-small-heavy-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "159-grpc-h2-tcp-default-loss-1-small-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "160-grpc-h2-loss-1-small-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "161-quic-loss-1-small-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "162-quic-loss-1-small-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "163-grpc-h2-tcp-default-loss-1-small-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "164-grpc-h2-loss-1-small-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "165-grpc-h2-loss-1-small-heavy-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "166-quic-loss-1-small-heavy-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "167-grpc-h2-tcp-default-loss-1-small-heavy-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "168-quic-rtt-150-small-heavy-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "169-grpc-h2-tcp-default-rtt-150-small-heavy-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "170-grpc-h2-rtt-150-small-heavy-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "171-grpc-h2-tcp-default-interregion-small-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "172-quic-interregion-small-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "173-grpc-h2-interregion-small-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "174-grpc-h2-tcp-default-interregion-small-heavy-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "175-quic-interregion-small-heavy-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "176-grpc-h2-interregion-small-heavy-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "177-grpc-h2-base-small-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "178-grpc-h2-tcp-default-base-small-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "179-quic-base-small-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "180-grpc-h2-tcp-default-interregion-small-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "181-grpc-h2-interregion-small-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "182-quic-interregion-small-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "183-grpc-h2-tcp-default-loss-2-small-heavy-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "184-quic-loss-2-small-heavy-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "185-grpc-h2-loss-2-small-heavy-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "186-grpc-h2-tcp-default-base-small-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "187-grpc-h2-base-small-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "188-quic-base-small-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "189-quic-loss-2-small-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "190-grpc-h2-tcp-default-loss-2-small-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "191-grpc-h2-loss-2-small-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "192-grpc-h2-loss-5-small-heavy-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "193-quic-loss-5-small-heavy-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "194-grpc-h2-tcp-default-loss-5-small-heavy-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "195-quic-interregion-small-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "196-grpc-h2-interregion-small-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "197-grpc-h2-tcp-default-interregion-small-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "198-grpc-h2-tcp-default-base-small-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "199-grpc-h2-base-small-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "200-quic-base-small-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "201-grpc-h2-loss-1-small-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "202-quic-loss-1-small-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "203-grpc-h2-tcp-default-loss-1-small-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "204-grpc-h2-interregion-small-heavy-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "205-grpc-h2-tcp-default-interregion-small-heavy-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "206-quic-interregion-small-heavy-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "207-grpc-h2-rtt-150-small-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "208-quic-rtt-150-small-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "209-grpc-h2-tcp-default-rtt-150-small-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "210-grpc-h2-loss-1-small-heavy-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "211-quic-loss-1-small-heavy-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "212-grpc-h2-tcp-default-loss-1-small-heavy-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "213-quic-loss-2-small-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "214-grpc-h2-tcp-default-loss-2-small-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "215-grpc-h2-loss-2-small-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "216-quic-base-small-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "217-grpc-h2-tcp-default-base-small-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "218-grpc-h2-base-small-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "219-grpc-h2-tcp-default-loss-5-small-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "220-quic-loss-5-small-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "221-grpc-h2-loss-5-small-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "222-quic-loss-1-small-heavy-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "223-grpc-h2-tcp-default-loss-1-small-heavy-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "224-grpc-h2-loss-1-small-heavy-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "225-grpc-h2-tcp-default-loss-5-small-heavy-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "226-quic-loss-5-small-heavy-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "227-grpc-h2-loss-5-small-heavy-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "228-grpc-h2-tcp-default-rtt-150-small-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "229-grpc-h2-rtt-150-small-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "230-quic-rtt-150-small-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "231-quic-rtt-150-small-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "232-grpc-h2-tcp-default-rtt-150-small-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "233-grpc-h2-rtt-150-small-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "234-grpc-h2-tcp-default-rtt-150-small-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "235-grpc-h2-rtt-150-small-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "236-quic-rtt-150-small-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "237-grpc-h2-tcp-default-loss-2-small-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "238-quic-loss-2-small-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "239-grpc-h2-loss-2-small-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "240-grpc-h2-tcp-default-base-small-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "241-quic-base-small-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "242-grpc-h2-base-small-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "243-grpc-h2-tcp-default-loss-2-small-heavy-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "244-quic-loss-2-small-heavy-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "245-grpc-h2-loss-2-small-heavy-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "246-grpc-h2-loss-2-small-heavy-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "247-grpc-h2-tcp-default-loss-2-small-heavy-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "248-quic-loss-2-small-heavy-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "249-grpc-h2-tcp-default-loss-2-small-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "250-grpc-h2-loss-2-small-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "251-quic-loss-2-small-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "252-grpc-h2-loss-5-small-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "253-quic-loss-5-small-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "254-grpc-h2-tcp-default-loss-5-small-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "255-quic-loss-2-small-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "256-grpc-h2-tcp-default-loss-2-small-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "257-grpc-h2-loss-2-small-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "258-grpc-h2-loss-1-small-heavy-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "259-quic-loss-1-small-heavy-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "260-grpc-h2-tcp-default-loss-1-small-heavy-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "261-quic-interregion-small-heavy-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "262-grpc-h2-interregion-small-heavy-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "263-grpc-h2-tcp-default-interregion-small-heavy-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "264-grpc-h2-tcp-default-rtt-150-small-heavy-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "265-grpc-h2-rtt-150-small-heavy-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "266-quic-rtt-150-small-heavy-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "267-grpc-h2-tcp-default-rtt-150-small-heavy-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "268-quic-rtt-150-small-heavy-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "269-grpc-h2-rtt-150-small-heavy-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "270-grpc-h2-loss-2-small-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "271-quic-loss-2-small-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "272-grpc-h2-tcp-default-loss-2-small-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "273-quic-base-small-heavy-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "274-grpc-h2-tcp-default-base-small-heavy-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "275-grpc-h2-base-small-heavy-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "276-grpc-h2-rtt-150-small-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "277-grpc-h2-tcp-default-rtt-150-small-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "278-quic-rtt-150-small-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "279-quic-interregion-small-heavy-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "280-grpc-h2-tcp-default-interregion-small-heavy-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "281-grpc-h2-interregion-small-heavy-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "282-grpc-h2-tcp-default-rtt-150-small-heavy-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "283-grpc-h2-rtt-150-small-heavy-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "284-quic-rtt-150-small-heavy-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "285-grpc-h2-tcp-default-loss-1-small-r4",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "286-quic-loss-1-small-r4",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "287-grpc-h2-loss-1-small-r4",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 4,
+      "seed": 4
+    },
+    {
+      "id": "288-quic-loss-5-small-heavy-r10",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "289-grpc-h2-loss-5-small-heavy-r10",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "290-grpc-h2-tcp-default-loss-5-small-heavy-r10",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small-heavy",
+      "repeat": 10,
+      "seed": 10
+    },
+    {
+      "id": "291-quic-interregion-small-heavy-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "292-grpc-h2-interregion-small-heavy-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "293-grpc-h2-tcp-default-interregion-small-heavy-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "294-grpc-h2-tcp-default-interregion-small-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "295-grpc-h2-interregion-small-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "296-quic-interregion-small-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "297-grpc-h2-loss-5-small-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "298-quic-loss-5-small-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "299-grpc-h2-tcp-default-loss-5-small-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "300-grpc-h2-loss-2-small-heavy-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "301-quic-loss-2-small-heavy-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "302-grpc-h2-tcp-default-loss-2-small-heavy-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "303-grpc-h2-tcp-default-base-small-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "304-grpc-h2-base-small-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "305-quic-base-small-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "306-grpc-h2-base-small-heavy-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "307-grpc-h2-tcp-default-base-small-heavy-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "308-quic-base-small-heavy-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "309-grpc-h2-tcp-default-base-small-heavy-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "310-grpc-h2-base-small-heavy-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "311-quic-base-small-heavy-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "312-grpc-h2-tcp-default-base-small-heavy-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "313-quic-base-small-heavy-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "314-grpc-h2-base-small-heavy-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "315-grpc-h2-interregion-small-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "316-quic-interregion-small-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "317-grpc-h2-tcp-default-interregion-small-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "318-quic-base-small-heavy-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "319-grpc-h2-tcp-default-base-small-heavy-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "320-grpc-h2-base-small-heavy-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "321-quic-rtt-150-small-heavy-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "322-grpc-h2-tcp-default-rtt-150-small-heavy-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "323-grpc-h2-rtt-150-small-heavy-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "324-quic-loss-2-small-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "325-grpc-h2-tcp-default-loss-2-small-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "326-grpc-h2-loss-2-small-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-2",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "327-quic-rtt-150-small-r9",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "328-grpc-h2-rtt-150-small-r9",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "329-grpc-h2-tcp-default-rtt-150-small-r9",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 9,
+      "seed": 9
+    },
+    {
+      "id": "330-grpc-h2-tcp-default-rtt-150-small-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "331-quic-rtt-150-small-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "332-grpc-h2-rtt-150-small-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "333-quic-loss-5-small-r5",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "334-grpc-h2-loss-5-small-r5",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "335-grpc-h2-tcp-default-loss-5-small-r5",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 5,
+      "seed": 5
+    },
+    {
+      "id": "336-quic-loss-1-small-r2",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "337-grpc-h2-loss-1-small-r2",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "338-grpc-h2-tcp-default-loss-1-small-r2",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 2,
+      "seed": 2
+    },
+    {
+      "id": "339-quic-interregion-small-r3",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "340-grpc-h2-tcp-default-interregion-small-r3",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "341-grpc-h2-interregion-small-r3",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 3,
+      "seed": 3
+    },
+    {
+      "id": "342-grpc-h2-tcp-default-loss-5-small-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "343-quic-loss-5-small-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "344-grpc-h2-loss-5-small-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-5",
+      "load": "small",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "345-quic-rtt-150-small-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "346-grpc-h2-tcp-default-rtt-150-small-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "347-grpc-h2-rtt-150-small-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "348-grpc-h2-tcp-default-loss-1-small-heavy-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "349-quic-loss-1-small-heavy-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "350-grpc-h2-loss-1-small-heavy-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "351-quic-rtt-150-small-heavy-r7",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "352-grpc-h2-rtt-150-small-heavy-r7",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "353-grpc-h2-tcp-default-rtt-150-small-heavy-r7",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "rtt-150",
+      "load": "small-heavy",
+      "repeat": 7,
+      "seed": 7
+    },
+    {
+      "id": "354-grpc-h2-loss-1-small-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "355-quic-loss-1-small-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "356-grpc-h2-tcp-default-loss-1-small-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "loss-1",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "357-grpc-h2-tcp-default-base-small-r8",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "358-grpc-h2-base-small-r8",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "359-quic-base-small-r8",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 8,
+      "seed": 8
+    },
+    {
+      "id": "360-grpc-h2-interregion-small-r1",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "361-grpc-h2-tcp-default-interregion-small-r1",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "362-quic-interregion-small-r1",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small",
+      "repeat": 1,
+      "seed": 1
+    },
+    {
+      "id": "363-grpc-h2-interregion-small-heavy-r6",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "364-quic-interregion-small-heavy-r6",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "365-grpc-h2-tcp-default-interregion-small-heavy-r6",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "interregion",
+      "load": "small-heavy",
+      "repeat": 6,
+      "seed": 6
+    },
+    {
+      "id": "366-grpc-h2-base-small-drift-end",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-end"
+    },
+    {
+      "id": "367-grpc-h2-tcp-default-base-small-drift-end",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-end"
+    },
+    {
+      "id": "368-quic-base-small-drift-end",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-end"
+    },
+    {
+      "id": "369-grpc-h2-tcp-default-base-small-heavy-drift-end",
+      "variant": "grpc-h2-tcp-default",
+      "transport": "grpc-h2",
+      "tcp": "default",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-end"
+    },
+    {
+      "id": "370-grpc-h2-base-small-heavy-drift-end",
+      "variant": "grpc-h2",
+      "transport": "grpc-h2",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-end"
+    },
+    {
+      "id": "371-quic-base-small-heavy-drift-end",
+      "variant": "quic",
+      "transport": "quic",
+      "tcp": "aligned",
+      "network": "base",
+      "load": "small-heavy",
+      "repeat": 0,
+      "seed": 1,
+      "role": "drift-end"
+    }
+  ]
+}
