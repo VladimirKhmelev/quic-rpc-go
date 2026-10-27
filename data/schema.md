@@ -41,13 +41,23 @@
 | --- | --- | --- |
 | `runs.csv` | прогон | из `series.json`: `run_id`, `variant`, `transport`, `tcp`, `network`, `load`, `repeat`, `seed`, `role`; сеть: `rtt_ms`, `jitter_ms`, `loss_pct`, `loss_burst`, `reorder_pct`, `rate_bps`, `queue_bdp`; из `meta.json`: `warmup_ns`, `measure_ns`, `window_ns`, CPU процессов `server_cpu_ns` и `client_cpu_ns` (user + system), занятость их ядер `server_cores_busy_ns` и `client_cores_busy_ns` (всё, кроме idle и iowait), `sent_bytes_per_s`, `received_bytes_per_s`, `in_flight_mean`, `in_flight_max`, `tls`, `problems` (число отличий машины от NET-5), `commit`, `dirty` |
 | `calls.parquet` | вызов | колонки `calls.csv` и `run_id`; сжатие zstd |
-| `summary.csv` | прогон и вид вызова | колонки `runs.csv` и `kind`, `count`, `errors`, `error_pct`, `p50`, `p95`, `p99` (мс) за окно измерения |
-| `cells.csv` | ячейка | `network`, `load`, `kind`, `variant`, `runs`, `error_pct` (средняя по прогонам) и по каждому перцентилю медиана по прогонам и её интервал: `p99`, `p99_lo`, `p99_hi` и т. д. |
-| `comparisons.csv` | ячейка без варианта, пара вариантов, перцентиль | `quic`, `other`, `metric`, `runs_quic`, `runs_other`, `median_quic`, `median_other`, `effect_pct` и интервал `effect_lo_pct`, `effect_hi_pct`, статистика `u`, `p` и `p_holm` |
-| `spread.csv` | ячейка | `metric`, `runs`, `cv`, `s_log`, `runs_for_5pct`, `runs_for_10pct`, `runs_for_20pct` |
+| `summary.csv` | прогон и вид вызова | колонки `runs.csv` и `kind`, `count`, `errors`, `error_pct`, `p50`, `p95`, `p99` (мс) за окно измерения, `growth` — медианная задержка последней трети измерения против первой, `overloaded` — перегружен ли прогон ([методика](../docs/methodology.md#анализ-exp-7-anl-1anl-3)) |
+| `cells.csv` | ячейка | `network`, `load`, `kind`, `variant`, `runs`, `error_pct` (средняя по прогонам), `overloaded_runs` (перегруженных прогонов), `growth` (медиана по прогонам), `goodput_mbps` (медиана по прогонам: полезные данные отвеченных вызовов всех видов в обе стороны, Мбит/с), `overloaded` (перегружено больше половины прогонов) и по каждому перцентилю медиана по прогонам и её интервал: `p99`, `p99_lo`, `p99_hi` и т. д. |
+| `comparisons.csv` | ячейка без варианта, пара вариантов, перцентиль | `quic`, `other`, `metric`, `regime` (`steady` — обе ячейки без перегрузки, `other-overloaded`, `quic-overloaded`, `both-overloaded`), `runs_quic`, `runs_other`, `median_quic`, `median_other`, `effect_pct` и интервал `effect_lo_pct`, `effect_hi_pct`, статистика `u`, `p` и `p_holm` |
+| `spread.csv` | ячейка | `metric`, `runs`, `overloaded`, `cv`, `s_log`, `runs_for_5pct`, `runs_for_10pct`, `runs_for_20pct` |
+| `cpu.csv` | сеть, нагрузка и вариант | `runs` и медиана по прогонам CPU на вызов в микросекундах: процесса (`server_cpu_us`, `client_cpu_us`) и его ядер (`server_cores_us`, `client_cores_us`) |
 | `warmup.csv` | прогон и вид вызова | колонки `runs.csv`, `kind`, `head_ratio` |
 | `drift.csv` | вариант, нагрузка и вид вызова | по каждому перцентилю значения в начале и в конце серии и изменение: `p99_start`, `p99_end`, `p99_change_pct` и т. д. |
 | `report.md`, `fig*.png` | — | сводка главных чисел и рисунки |
+
+## Пилотные данные
+
+[`data/pilot`](pilot) — таблицы анализа пилота ([итоги](../docs/pilot.md)) в формате выше, его `report.md` и рисунки, план `series.json` и отчёты самопроверки стенда `check/`. Все вызовы (`calls.parquet`, 25 МБ) в git не помещаются и лежат во вложении релиза (QLT-5). С ним таблицы и рисунки пересобираются с нуля:
+
+```sh
+# calls.parquet из релиза — в data/pilot
+make plots ANALYSIS=data/pilot
+```
 
 ## calls.csv
 

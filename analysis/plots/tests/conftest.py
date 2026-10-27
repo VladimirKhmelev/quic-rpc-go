@@ -20,12 +20,17 @@ WARMUP_NS = 1_000_000_000
 MEASURE_NS = 10_000_000_000
 
 
-def latency_ms(variant: str, network: str, rng: np.random.Generator, n: int) -> np.ndarray:
-    """The latencies of a synthetic run: an RTT, more on QUIC-less variants
-    as the losses grow."""
+def latency_ms(variant: str, network: str, rng: np.random.Generator, scheduled: np.ndarray) -> np.ndarray:
+    """The latencies of the calls of a synthetic run due at scheduled: an
+    RTT, more on QUIC-less variants as the losses grow. From 2% of losses
+    on, these fall behind: their latencies grow over the measurement up to
+    three times."""
     base = NETWORKS[network]["rtt_ns"] / 1e6
     slow = 1 + NETWORKS[network]["loss_pct"] * (0.1 if variant == "quic" else 1.0)
-    return base * slow * rng.lognormal(0, 0.1, n)
+    latency = base * slow * rng.lognormal(0, 0.1, len(scheduled))
+    if variant != "quic" and NETWORKS[network]["loss_pct"] >= 2:
+        latency *= 1 + 2 * np.clip(scheduled - WARMUP_NS, 0, None) / MEASURE_NS
+    return latency
 
 
 def write_run(directory: Path, planned: dict, rng: np.random.Generator, calls: int = 200) -> None:
@@ -46,8 +51,8 @@ def write_run(directory: Path, planned: dict, rng: np.random.Generator, calls: i
         "build": {"commit": "abc", "dirty": False},
     }
     (directory / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-    latency = latency_ms(planned["variant"], network, rng, calls)
     scheduled = np.sort(rng.uniform(0, WARMUP_NS + MEASURE_NS, calls)).astype(np.int64)
+    latency = latency_ms(planned["variant"], network, rng, scheduled)
     with open(directory / "calls.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["seq", "kind", "scheduled_ns", "latency_ns", "code", "req_bytes", "resp_bytes", "conn", "phase"])

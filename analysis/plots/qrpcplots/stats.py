@@ -6,6 +6,10 @@ a cell (network, load, kind of call, variant) is the set of the percentiles
 of its runs, described by their median with a bootstrap confidence interval
 over the runs. The variants are compared on the runs with the Mann-Whitney
 test, corrected with Holm's method within a family of tests.
+
+A run can fail to keep up with its load: then its latencies grow with the
+length of the run up to the deadline, and its percentiles measure the run
+rather than the transport. Such runs and cells are marked overloaded.
 """
 
 from __future__ import annotations
@@ -27,6 +31,19 @@ POWER = 0.8
 # under normality: it needs 1/0.955 times the runs.
 MW_EFFICIENCY = 3 / math.pi
 EFFECTS = (0.05, 0.10, 0.20)
+# A run is overloaded for a kind of call if more than OVERLOAD_ERRORS_PCT
+# of its calls fail, or if their median latency over the last third of the
+# measurement is more than OVERLOAD_GROWTH times that over the first.
+OVERLOAD_ERRORS_PCT = 1.0
+OVERLOAD_GROWTH = 1.5
+# The regime of a comparison by whether the cells of QUIC and of the other
+# variant are overloaded.
+REGIMES = {
+    (False, False): "steady",
+    (False, True): "other-overloaded",
+    (True, False): "quic-overloaded",
+    (True, True): "both-overloaded",
+}
 
 
 def nearest_rank(values: np.ndarray, q: float) -> float:
@@ -41,10 +58,25 @@ def rng_for(*key: object) -> np.random.Generator:
     return np.random.default_rng(zlib.crc32(repr(key).encode()))
 
 
+def growth(calls: pd.DataFrame, warmup_ns: int, measure_ns: int) -> float:
+    """Returns the median latency of the calls due in the last third of the
+    measurement against that of the calls due in its first third; NaN if
+    either has no calls."""
+    since = calls["scheduled_ns"].to_numpy() - warmup_ns
+    latency = calls["latency_ns"].to_numpy()
+    first, last = latency[since < measure_ns / 3], latency[since >= 2 * measure_ns / 3]
+    if len(first) == 0 or len(last) == 0:
+        return float("nan")
+    return float(np.median(last) / np.median(first))
+
+
 def run_summary(runs: pd.DataFrame, calls: pd.DataFrame) -> pd.DataFrame:
     """Returns a row per run and kind of call of the measurement: the count,
-    the errors and the percentiles in milliseconds. A failed call counts
-    with its latency, up to the deadline, as the open-loop load sees it."""
+    the errors, the percentiles in milliseconds, the growth of the latency
+    over the measurement and whether the run was overloaded. A failed call
+    counts with its latency, up to the deadline, as the open-loop load sees
+    it."""
+    window = runs.set_index("run_id")[["warmup_ns", "measure_ns"]]
     measured = calls[calls["phase"] == "measure"]
     rows = []
     for (run_id, kind), group in measured.groupby(["run_id", "kind"], observed=True):
@@ -53,6 +85,8 @@ def run_summary(runs: pd.DataFrame, calls: pd.DataFrame) -> pd.DataFrame:
         row = {"run_id": run_id, "kind": kind, "count": len(group), "errors": errors,
                "error_pct": 100 * errors / len(group)}
         row.update({name: nearest_rank(latency, q) for name, q in QUANTILES.items()})
+        row["growth"] = growth(group, *window.loc[run_id])
+        row["overloaded"] = bool(row["error_pct"] > OVERLOAD_ERRORS_PCT or row["growth"] > OVERLOAD_GROWTH)
         rows.append(row)
     summary = pd.DataFrame(rows)
     return runs.merge(summary, on="run_id")
@@ -71,18 +105,51 @@ def measured_runs(summary: pd.DataFrame) -> pd.DataFrame:
     return summary[summary["role"] == ""]
 
 
+def overloaded(runs: pd.DataFrame) -> bool:
+    """Tells whether the runs of a cell are overloaded: more than half of
+    them are."""
+    return bool(2 * runs["overloaded"].sum() > len(runs))
+
+
 def cells(summary: pd.DataFrame) -> pd.DataFrame:
-    """Returns a row per cell: the number of runs, and for every percentile
-    the median over the runs with its interval, as NAME, NAME_lo, NAME_hi."""
+    """Returns a row per cell: the number of runs, the mean share of failed
+    calls, the runs overloaded, the median growth of the latency, the median
+    goodput of the runs (the payload of the answered calls of every kind,
+    both ways, in Mbit/s), whether the cell is overloaded, and for every
+    percentile the median over the runs with its interval, as NAME,
+    NAME_lo, NAME_hi."""
     rows = []
     for key, group in measured_runs(summary).groupby(CELL, observed=True):
         row = dict(zip(CELL, key, strict=True))
         row["runs"] = len(group)
         row["error_pct"] = float(group["error_pct"].mean())
+        row["overloaded_runs"] = int(group["overloaded"].sum())
+        row["growth"] = float(group["growth"].median())
+        row["goodput_mbps"] = float(((group["sent_bytes_per_s"] + group["received_bytes_per_s"]) * 8 / 1e6).median())
+        row["overloaded"] = overloaded(group)
         for name in QUANTILES:
             row[name], row[name + "_lo"], row[name + "_hi"] = bootstrap_median(group[name].to_numpy(), rng_for(*key, name))
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def cpu(summary: pd.DataFrame) -> pd.DataFrame:
+    """Returns, per network, load and variant, the CPU time per call of the
+    server and of the client in microseconds, the median over the runs: of
+    the process (user + system), and of its cores (all but idle), which
+    also counts the work of the kernel for the network that the process is
+    not charged with."""
+    measured = measured_runs(summary)
+    count = measured.groupby("run_id")["count"].sum()
+    runs = measured.drop_duplicates("run_id").set_index("run_id")
+    columns = []
+    for side in ("server", "client"):
+        runs[f"{side}_cpu_us"] = runs[f"{side}_cpu_ns"] / count / 1e3
+        runs[f"{side}_cores_us"] = runs[f"{side}_cores_busy_ns"] / count / 1e3
+        columns += [f"{side}_cpu_us", f"{side}_cores_us"]
+    table = runs.groupby(["network", "load", "variant"])[columns].median()
+    table.insert(0, "runs", runs.groupby(["network", "load", "variant"]).size())
+    return table.reset_index()
 
 
 def holm(pvalues: np.ndarray) -> np.ndarray:
@@ -112,7 +179,8 @@ def comparisons(summary: pd.DataFrame, family: tuple[str, ...] = ("load", "kind"
     variant in each cell and percentile: the effect, the median of QUIC
     against the other's, in percent with its interval (negative: QUIC is
     faster), the two-sided Mann-Whitney p-value and the p-value adjusted
-    with Holm's method within each family of the given columns."""
+    with Holm's method within each family of the given columns, and the
+    regime: which of the two cells are overloaded."""
     measured = measured_runs(summary)
     quic = sorted(measured.loc[measured["transport"] == "quic", "variant"].unique())
     others = sorted(measured.loc[measured["transport"] != "quic", "variant"].unique())
@@ -120,16 +188,17 @@ def comparisons(summary: pd.DataFrame, family: tuple[str, ...] = ("load", "kind"
     for (network, load, kind), group in measured.groupby(["network", "load", "kind"], observed=True):
         for q in quic:
             for o in others:
+                runs_q, runs_o = group[group["variant"] == q], group[group["variant"] == o]
+                if runs_q.empty or runs_o.empty:
+                    continue
+                regime = REGIMES[(overloaded(runs_q), overloaded(runs_o))]
                 for metric in QUANTILES:
-                    x = group.loc[group["variant"] == q, metric].to_numpy()
-                    y = group.loc[group["variant"] == o, metric].to_numpy()
-                    if len(x) == 0 or len(y) == 0:
-                        continue
+                    x, y = runs_q[metric].to_numpy(), runs_o[metric].to_numpy()
                     lo, hi = ratio_interval(x, y, rng_for(network, load, kind, q, o, metric))
                     test = stats.mannwhitneyu(x, y, alternative="two-sided")
                     rows.append({
                         "network": network, "load": load, "kind": kind, "quic": q, "other": o, "metric": metric,
-                        "runs_quic": len(x), "runs_other": len(y),
+                        "regime": regime, "runs_quic": len(x), "runs_other": len(y),
                         "median_quic": float(np.median(x)), "median_other": float(np.median(y)),
                         "effect_pct": 100 * (np.median(x) / np.median(y) - 1),
                         "effect_lo_pct": 100 * (lo - 1), "effect_hi_pct": 100 * (hi - 1),
@@ -155,7 +224,8 @@ def runs_needed(s_log: float, effect: float) -> int:
 def spread(summary: pd.DataFrame, metric: str = "p99") -> pd.DataFrame:
     """Returns, per cell, how much the percentile varies across runs, as the
     coefficient of variation and the standard deviation of its logarithm,
-    and the runs needed to tell apart differences of EFFECTS."""
+    and the runs needed to tell apart differences of EFFECTS; and whether
+    the cell is overloaded."""
     rows = []
     for key, group in measured_runs(summary).groupby(CELL, observed=True):
         values = group[metric].to_numpy()
@@ -163,7 +233,7 @@ def spread(summary: pd.DataFrame, metric: str = "p99") -> pd.DataFrame:
         s_log = float(np.std(np.log(values), ddof=1)) if several else float("nan")
         cv = float(np.std(values, ddof=1) / np.mean(values)) if several else float("nan")
         row = dict(zip(CELL, key, strict=True))
-        row.update({"metric": metric, "runs": len(values), "cv": cv, "s_log": s_log})
+        row.update({"metric": metric, "runs": len(values), "overloaded": overloaded(group), "cv": cv, "s_log": s_log})
         for effect in EFFECTS:
             row[f"runs_for_{round(effect * 100)}pct"] = runs_needed(s_log, effect) if not math.isnan(s_log) else None
         rows.append(row)

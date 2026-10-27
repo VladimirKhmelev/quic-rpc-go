@@ -63,10 +63,20 @@ def describe(runs: pd.DataFrame, network: str) -> str:
     return ", ".join(parts)
 
 
-def runs_note(table: pd.DataFrame) -> str:
+def runs_note(table: pd.DataFrame, overload: str) -> str:
+    """Returns the note of a figure: the runs, the intervals and, if a cell
+    of the figure is overloaded, how it is drawn."""
     lo, hi = int(table["runs"].min()), int(table["runs"].max())
     n = f"{lo}" if lo == hi else f"{lo}–{hi}"
-    return f"медиана по {n} прогонам, интервалы — 95% bootstrap"
+    note = f"медиана по {n} прогонам, интервалы — 95% bootstrap"
+    return note + (f"\n{overload} — ячейка перегружена" if table["overloaded"].any() else "")
+
+
+def footnote(fig, text: str) -> float:
+    """Puts the conditions of a figure under it and returns the share of
+    its height they take."""
+    fig.text(0.5, 0.01, text, ha="center", va="bottom", fontsize=8)
+    return 0.04 * (text.count("\n") + 1)
 
 
 def fig_loss(cells: pd.DataFrame, runs: pd.DataFrame, load: str, kind: str, number: int, path: Path) -> bool:
@@ -83,14 +93,16 @@ def fig_loss(cells: pd.DataFrame, runs: pd.DataFrame, load: str, kind: str, numb
         group = group.assign(loss=group["network"].map(loss)).sort_values("loss")
         err = [group["p99"] - group["p99_lo"], group["p99_hi"] - group["p99"]]
         ax.errorbar(group["loss"], group["p99"], yerr=err, marker="o", capsize=3, label=variant, color=palette[variant])
+        over = group[group["overloaded"]]
+        ax.plot(over["loss"], over["p99"], "o", markerfacecolor="white", markeredgecolor=palette[variant], zorder=3)
     plain_log(ax.yaxis)
     ax.set_xlabel("потери в каждую сторону, %")
     ax.set_ylabel(f"p99 вызова {kind}, мс")
     ax.set_title(f"Рис. {number}. p99 вызовов {kind} при нагрузке {load} от равномерных потерь", fontsize=10)
-    fig.text(0.5, 0.01, f"{describe(runs, BASE)}; {runs_note(table)}", ha="center", fontsize=8)
+    bottom = footnote(fig, f"{describe(runs, BASE)}; {runs_note(table, 'пустой маркер')}")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(fontsize=8)
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    fig.tight_layout(rect=(0, bottom, 1, 1))
     fig.savefig(path, dpi=DPI)
     plt.close(fig)
     return True
@@ -125,8 +137,8 @@ def fig_ecdf(calls: pd.DataFrame, runs: pd.DataFrame, network: str, load: str, k
     loss = float(networks(runs).loc[network, "loss_pct"])
     fig.suptitle(f"Рис. 4. Распределение задержек вызовов {kind} при нагрузке {load}, потери {loss:g}%", fontsize=10)
     n = f"{min(counts)}" if min(counts) == max(counts) else f"{min(counts)}–{max(counts)}"
-    fig.text(0.5, 0.01, f"{describe(runs, network)}; все вызовы измерения {n} прогонов каждого варианта", ha="center", fontsize=8)
-    fig.tight_layout(rect=(0, 0.04, 1, 0.95))
+    bottom = footnote(fig, f"{describe(runs, network)}; все вызовы измерения {n} прогонов каждого варианта")
+    fig.tight_layout(rect=(0, bottom, 1, 0.95))
     fig.savefig(path, dpi=DPI)
     plt.close(fig)
     return True
@@ -154,7 +166,8 @@ def fig_profiles(cells: pd.DataFrame, runs: pd.DataFrame, kind: str, path: Path)
             x = np.arange(3) + (i - (len(variants) - 1) / 2) * width
             values = [row[m] for m in ("p50", "p95", "p99")]
             err = [[row[m] - row[m + "_lo"] for m in ("p50", "p95", "p99")], [row[m + "_hi"] - row[m] for m in ("p50", "p95", "p99")]]
-            ax.bar(x, values, width, yerr=err, capsize=2, label=variant, color=palette[variant])
+            hatch = "//" if row["overloaded"] else None
+            ax.bar(x, values, width, yerr=err, capsize=2, label=variant, color=palette[variant], hatch=hatch, edgecolor="white")
         ax.set_xticks(range(3), ["p50", "p95", "p99"])
         plain_log(ax.yaxis)
         ax.set_ylabel(f"задержка вызова {kind}, мс")
@@ -162,8 +175,8 @@ def fig_profiles(cells: pd.DataFrame, runs: pd.DataFrame, kind: str, path: Path)
         ax.grid(True, axis="y", which="both", alpha=0.3)
     axes[0][0].legend(fontsize=8)
     fig.suptitle(f"Рис. 13. Перцентили вызовов {kind} на профилях сети", fontsize=10)
-    fig.text(0.5, 0.01, runs_note(table), ha="center", fontsize=8)
-    fig.tight_layout(rect=(0, 0.04, 1, 0.95))
+    bottom = footnote(fig, runs_note(table, "штриховка"))
+    fig.tight_layout(rect=(0, bottom, 1, 0.95))
     fig.savefig(path, dpi=DPI)
     plt.close(fig)
     return True
