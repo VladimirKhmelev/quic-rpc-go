@@ -14,6 +14,12 @@ from . import figures, stats
 LOSS_FIGURES = [("small", 1), ("small-heavy", 2)]
 KIND = "small"
 ECDF_LOSS = 2.0
+REGIMES = {
+    "steady": "без перегрузки",
+    "other-overloaded": "перегружен другой",
+    "quic-overloaded": "перегружен QUIC",
+    "both-overloaded": "перегружены оба",
+}
 
 
 def fmt(x: float) -> str:
@@ -21,6 +27,11 @@ def fmt(x: float) -> str:
     if x is None or (isinstance(x, float) and np.isnan(x)):
         return "—"
     return f"{x:.3g}"
+
+
+def decimal(x: float) -> str:
+    """Formats a number with a decimal comma, as the Russian text does."""
+    return f"{x:g}".replace(".", ",")
 
 
 def markdown(table: pd.DataFrame) -> str:
@@ -42,6 +53,7 @@ def report(runs: pd.DataFrame, calls: pd.DataFrame, out: str | Path) -> list[Pat
         "cells": stats.cells(summary),
         "comparisons": stats.comparisons(summary),
         "spread": stats.spread(summary),
+        "cpu": stats.cpu(summary),
         "warmup": stats.warmup(runs, calls),
         "drift": stats.drift(summary),
     }
@@ -86,7 +98,8 @@ def summary_text(runs: pd.DataFrame, tables: dict[str, pd.DataFrame], drawn: lis
         "",
         f"## p99 вызовов {KIND}, мс",
         "",
-        "Медиана p99 по прогонам ячейки и 95%-интервал bootstrap; в скобках — доля вызовов с ошибкой, если они были. "
+        "Медиана p99 по прогонам ячейки и 95%-интервал bootstrap; в скобках — доля вызовов с ошибкой, если они были, "
+        "и сколько прогонов перегружено, если ячейка перегружена (раздел «Перегрузка»). "
         "Вызов с ошибкой входит в перцентили со своей задержкой, не больше дедлайна 10 с.",
         "",
     ]
@@ -94,12 +107,40 @@ def summary_text(runs: pd.DataFrame, tables: dict[str, pd.DataFrame], drawn: lis
     small = cells[cells["kind"] == KIND].copy()
     if not small.empty:
         def p99_cell(r: pd.Series) -> str:
+            notes = []
+            if r["error_pct"] > 0:
+                notes.append(f"ошибок {r['error_pct']:.2g}%")
+            if r["overloaded"]:
+                notes.append(f"перегрузка {r['overloaded_runs']} из {r['runs']}")
             text = f"{fmt(r['p99'])} [{fmt(r['p99_lo'])}, {fmt(r['p99_hi'])}]"
-            return text + (f" (ошибок {r['error_pct']:.2g}%)" if r["error_pct"] > 0 else "")
+            return text + (f" ({'; '.join(notes)})" if notes else "")
 
         small["p99 [интервал]"] = small.apply(p99_cell, axis=1)
         wide = small.pivot_table(index=["network", "load"], columns="variant", values="p99 [интервал]", aggfunc="first").reset_index()
         parts += [markdown(wide), ""]
+
+    touched = cells.groupby(["network", "load"])["overloaded_runs"].transform("sum") > 0
+    if touched.any():
+        over = cells[touched].sort_values(["network", "load", "variant", "kind"]).copy()
+        over["перегружено"] = over.apply(lambda r: f"{r['overloaded_runs']} из {r['runs']}", axis=1)
+        over["ошибок, %"] = over["error_pct"].map(fmt)
+        over["рост"] = over["growth"].map(fmt)
+        over["goodput, Мбит/с"] = over["goodput_mbps"].map(fmt)
+        parts += [
+            "## Перегрузка",
+            "",
+            f"Прогон перегружен по виду вызова, если с ошибкой завершилось больше {decimal(stats.OVERLOAD_ERRORS_PCT)}% вызовов "
+            f"или задержка выросла за измерение больше чем в {decimal(stats.OVERLOAD_GROWTH)} раза: рост — медиана задержки "
+            "вызовов последней трети измерения против первой. Ячейка перегружена, если перегружено больше половины её прогонов. "
+            "Перегруженный прогон не успевает за нагрузкой: задержки растут с длиной прогона до дедлайна, "
+            "и его перцентили описывают прогон, а не транспорт.",
+            "",
+            "Ниже — сети и нагрузки, где перегружен хотя бы один прогон. Рост — медиана по прогонам; goodput — "
+            "полезные данные отвеченных вызовов всех видов в обе стороны, медиана по прогонам.",
+            "",
+            markdown(over[["network", "load", "variant", "kind", "перегружено", "ошибок, %", "рост", "goodput, Мбит/с"]]),
+            "",
+        ]
 
     comp = tables["comparisons"]
     if not comp.empty:
@@ -107,20 +148,24 @@ def summary_text(runs: pd.DataFrame, tables: dict[str, pd.DataFrame], drawn: lis
         p99["эффект, % [интервал]"] = p99.apply(
             lambda r: f"{r['effect_pct']:+.1f} [{r['effect_lo_pct']:+.1f}, {r['effect_hi_pct']:+.1f}]", axis=1)
         p99["p (Холм)"] = p99["p_holm"].map(fmt)
+        p99["режим"] = p99["regime"].map(REGIMES)
         parts += [
             f"## Сравнение p99 вызовов {KIND}",
             "",
             "Эффект — медиана p99 QUIC против медианы другого варианта; отрицательный — QUIC быстрее. "
-            "p — двусторонний критерий Манна–Уитни по прогонам с поправкой Холма в пределах нагрузки и пары вариантов.",
+            "p — двусторонний критерий Манна–Уитни по прогонам с поправкой Холма в пределах нагрузки и пары вариантов. "
+            "Режим — какая из двух ячеек перегружена; если перегружена хоть одна, эффект говорит о перегрузке, а не о задержке.",
             "",
-            markdown(p99[["network", "load", "quic", "other", "эффект, % [интервал]", "p (Холм)"]]),
+            markdown(p99[["network", "load", "quic", "other", "режим", "эффект, % [интервал]", "p (Холм)"]]),
             "",
         ]
 
     spread = tables["spread"]
     if not spread.empty:
-        columns = ["network", "load", "variant", "runs", "cv", "s_log", "runs_for_5pct", "runs_for_10pct", "runs_for_20pct"]
-        need = spread[spread["kind"] == KIND][columns].copy()
+        columns = ["network", "load", "variant", "runs", "перегрузка", "cv", "s_log", "runs_for_5pct", "runs_for_10pct", "runs_for_20pct"]
+        need = spread[spread["kind"] == KIND].copy()
+        need["перегрузка"] = need["overloaded"].map({True: "да", False: ""})
+        need = need[columns]
         for c in ("cv", "s_log"):
             need[c] = need[c].map(fmt)
         parts += [
@@ -128,9 +173,28 @@ def summary_text(runs: pd.DataFrame, tables: dict[str, pd.DataFrame], drawn: lis
             "",
             "cv — коэффициент вариации p99 по прогонам, s_log — стандартное отклонение его логарифма. "
             "runs_for_N — сколько прогонов на вариант нужно, чтобы различить разницу p99 в N% "
-            "(критерий Манна–Уитни, α = 0,05, мощность 0,8, нормальное приближение для логарифма p99).",
+            "(критерий Манна–Уитни, α = 0,05, мощность 0,8, нормальное приближение для логарифма p99). "
+            "В перегруженной ячейке p99 упирается в дедлайн или растёт с длиной прогона, и его разброс о транспорте не говорит.",
             "",
             markdown(need),
+            "",
+        ]
+
+    cpu = tables["cpu"]
+    if not cpu.empty:
+        c = cpu.copy()
+        names = {"server_cpu_us": "сервер, процесс", "server_cores_us": "сервер, ядра",
+                 "client_cpu_us": "клиент, процесс", "client_cores_us": "клиент, ядра"}
+        for column in names:
+            c[column] = c[column].map(fmt)
+        parts += [
+            "## CPU на вызов, мкс",
+            "",
+            "Медиана по прогонам: время CPU процесса (user + system) или занятость его ядер (всё, кроме простоя), "
+            "делённые на число вызовов измерения всех видов. Занятость ядер учитывает и работу ядра ОС для сети, "
+            "которая процессу не засчитывается.",
+            "",
+            markdown(c.rename(columns=names)[["network", "load", "variant", "runs", *names.values()]]),
             "",
         ]
 
@@ -142,7 +206,7 @@ def summary_text(runs: pd.DataFrame, tables: dict[str, pd.DataFrame], drawn: lis
             "## Прогрев",
             "",
             "Медиана по прогонам отношения медианной задержки первых 5 с измерения к остальным. "
-            "Заметно больше 1 — прогрева не хватает.",
+            "Заметно больше 1 — прогрева не хватает; заметно меньше 1 — задержка растёт за прогон, это перегрузка.",
             "",
             markdown(w),
             "",
