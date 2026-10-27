@@ -1,10 +1,13 @@
 package rpcquic_test
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/quic-go/quic-go"
 
@@ -97,6 +100,44 @@ func TestConfigsAreNotModified(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*serverQUIC, wantServerQUIC) || !reflect.DeepEqual(*clientQUIC, wantClientQUIC) {
 		t.Errorf("QUIC configs were modified: server %+v, client %+v", *serverQUIC, *clientQUIC)
+	}
+}
+
+// TestKeepAlive: by default an idle client connection stays open past the
+// idle timeout; with keepalives turned off, quic-go closes it.
+func TestKeepAlive(t *testing.T) {
+	serverTLS, clientTLS := transporttest.TLSConfigs(t)
+	l := listen(t, serverTLS, nil)
+	const idle = 300 * time.Millisecond
+	for _, tt := range []struct {
+		name   string
+		period time.Duration
+		open   bool
+	}{{"default", 0, true}, {"turned off", -1, false}} {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &rpcquic.Dialer{Addr: l.Addr().String(), TLSConfig: clientTLS,
+				QUICConfig: &quic.Config{MaxIdleTimeout: idle, KeepAlivePeriod: tt.period}}
+			c, err := d.Dial(transporttest.Context(t))
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer func() { _ = c.CloseWithError(transport.NoError, "") }()
+			timer := time.NewTimer(5 * idle)
+			defer timer.Stop()
+			select {
+			case <-c.Context().Done():
+				if tt.open {
+					t.Fatalf("idle connection closed: %v", context.Cause(c.Context()))
+				}
+				if _, ok := errors.AsType[*quic.IdleTimeoutError](context.Cause(c.Context())); !ok {
+					t.Fatalf("idle connection closed: %v, want an idle timeout", context.Cause(c.Context()))
+				}
+			case <-timer.C:
+				if !tt.open {
+					t.Fatalf("idle connection without keepalives open after %v, the idle timeout is %v", 5*idle, idle)
+				}
+			}
+		})
 	}
 }
 
