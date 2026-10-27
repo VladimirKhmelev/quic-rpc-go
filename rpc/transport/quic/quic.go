@@ -4,7 +4,8 @@
 // package takes copies of the caller's TLS and QUIC configurations and
 // adjusts them for the protocol: the ALPN is set to "qrpc/1", unidirectional
 // streams are disabled and the client accepts no streams from the server.
-// All other settings are kept.
+// The client also sends keepalives unless told otherwise (see Dialer). All
+// other settings are kept.
 //
 // A server that restarts should listen with NewListener on a transport with
 // a stateless reset key that stays the same across restarts. When a server
@@ -97,9 +98,19 @@ type Dialer struct {
 	Addr string
 	// TLSConfig must allow verifying the server certificate.
 	TLSConfig *tls.Config
-	// QUICConfig may be nil.
+	// QUICConfig may be nil. A zero KeepAlivePeriod means half of
+	// MaxIdleTimeout, unlike in quic-go, where it turns keepalives off; a
+	// negative one turns them off. Without keepalives quic-go closes a
+	// connection that has been idle for the idle timeout, 30 s by default,
+	// and the next call pays for a handshake; with them an idle connection
+	// stays open, as TCP connections of grpc-go do, and the connection to a
+	// dead server closes after the idle timeout even without calls.
 	QUICConfig *quic.Config
 }
+
+// defaultIdleTimeout is quic-go's default MaxIdleTimeout
+// (internal/protocol/params.go).
+const defaultIdleTimeout = 30 * time.Second
 
 // Dial establishes a connection and completes the handshake.
 func (d *Dialer) Dial(ctx context.Context) (transport.Conn, error) {
@@ -138,6 +149,18 @@ func configureQUIC(c *quic.Config, client bool) *quic.Config {
 	c.MaxIncomingUniStreams = -1
 	if client {
 		c.MaxIncomingStreams = -1
+		switch {
+		case c.KeepAlivePeriod < 0:
+			c.KeepAlivePeriod = 0
+		case c.KeepAlivePeriod == 0:
+			idle := c.MaxIdleTimeout
+			if idle <= 0 {
+				idle = defaultIdleTimeout
+			}
+			// quic-go sends keepalives at most every half of the idle
+			// timeout agreed with the server (connection.go:2425).
+			c.KeepAlivePeriod = idle / 2
+		}
 	}
 	return c
 }
