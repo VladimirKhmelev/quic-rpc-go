@@ -11,7 +11,7 @@
 # Jitter 30ms of the requirements is missing: it exceeds the one-way delay
 # of the base point, 25ms, and the testbed refuses that, since netem would
 # cut a fifth of the normally distributed delays at zero. The jitter axis is
-# settled after the pilot.
+# settled with the matrix of the main series: the pilot had no jitter point.
 profiles:
   - name: base
     description: Базовая точка

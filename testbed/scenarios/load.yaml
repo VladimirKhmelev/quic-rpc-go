@@ -12,8 +12,8 @@
 #   reconnect  a new connection every period, and right after it calls small
 #              calls on it, of the sizes of small
 #
-# The values are the defaults of repo-requirements.md and will be refined
-# after the pilot (phase 2).
+# The values are the defaults of repo-requirements.md; the pilot (phase 2)
+# kept them, see docs/pilot.md.
 loads:
   - name: small
     description: Мелкие unary
