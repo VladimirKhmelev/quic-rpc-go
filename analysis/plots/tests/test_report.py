@@ -28,16 +28,25 @@ def test_report(series, tmp_path):
     out = tmp_path / "out"
     written = {p.name for p in report.report(s.runs, s.calls, out)}
     assert written == {
-        "summary.csv", "cells.csv", "comparisons.csv", "spread.csv", "warmup.csv", "drift.csv",
+        "summary.csv", "cells.csv", "comparisons.csv", "spread.csv", "cpu.csv", "warmup.csv", "drift.csv",
         "fig01-loss-small.png", "fig02-loss-small-heavy.png", "fig04-ecdf-loss-2.png", "fig13-profiles.png", "report.md",
     }
     cells = pd.read_csv(out / "cells.csv")
     assert (cells["runs"] == 3).all() and len(cells) == 4 * 2 * 3
+    # gRPC falls behind at 2% of losses only.
+    behind = (cells["network"] == "loss-2") & (cells["variant"] != "quic")
+    assert cells.loc[behind, "overloaded"].all() and (cells.loc[behind, "overloaded_runs"] == 3).all()
+    assert not cells.loc[~behind, "overloaded"].any() and (cells.loc[~behind, "overloaded_runs"] == 0).all()
+    assert (cells.loc[behind, "growth"] > 1.5).all() and (cells.loc[~behind, "growth"] < 1.5).all()
+    assert (cells["goodput_mbps"] == (1000 + 900) * 8 / 1e6).all()
     comparisons = pd.read_csv(out / "comparisons.csv")
     lossy = comparisons[(comparisons["network"] == "loss-2") & (comparisons["metric"] == "p99")]
-    assert (lossy["effect_pct"] < -50).all()
+    assert (lossy["effect_pct"] < -50).all() and (lossy["regime"] == "other-overloaded").all()
+    assert (comparisons.loc[comparisons["network"] != "loss-2", "regime"] == "steady").all()
     text = (out / "report.md").read_text(encoding="utf-8")
     assert "Прогонов: 84, из них прогонов дрейфа: 12." in text and "![fig13-profiles](fig13-profiles.png)" in text
+    assert "## Перегрузка" in text and "(перегрузка 3 из 3)" in text and "| перегружен другой |" in text
+    assert "## CPU на вызов, мкс" in text and "| сервер, ядра |" in text
 
     # The same data give the same tables.
     again = tmp_path / "again"
