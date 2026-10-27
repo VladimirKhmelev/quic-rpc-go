@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -18,8 +19,9 @@ var errClientConnClosing = status.Error(codes.Canceled, "client connection is cl
 
 // ClientConn is a client connection to one server. It dials on the first
 // call and dials again on a later call once the connection has closed; calls
-// in flight on a lost connection fail with Unavailable. It is safe for
-// concurrent use.
+// in flight on a lost connection fail with Unavailable. A call that finds
+// the connection closed before it has sent anything dials again and goes
+// out on the new connection. It is safe for concurrent use.
 type ClientConn struct {
 	dialer transport.Dialer
 
@@ -139,13 +141,9 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
 	}
-	conn, err := cc.getConn(ctx)
+	st, err := cc.openStream(ctx)
 	if err != nil {
 		return nil, err
-	}
-	st, err := conn.OpenStream(ctx)
-	if err != nil {
-		return nil, cc.openError(ctx, err)
 	}
 
 	// The timeout is measured right before sending, after any wait for the
@@ -191,6 +189,29 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 		_ = cs.CloseSend()
 	}
 	return cs, nil
+}
+
+// openStream opens a stream, dialing if there is no connection. The
+// connection may have closed before the client noticed; a stream that fails
+// to open on it has sent nothing, so the call dials again and tries once
+// more (RPC-12). grpc-go retries such a call transparently as well:
+// NewStreamError.AllowTransparentRetry (internal/transport/http2_client.go).
+func (cc *ClientConn) openStream(ctx context.Context) (transport.Stream, error) {
+	for retried := false; ; retried = true {
+		conn, err := cc.getConn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		st, err := conn.OpenStream(ctx)
+		if err == nil {
+			return st, nil
+		}
+		// The failed connection's context is canceled by now (see
+		// transport.Conn), so getConn dials a new one.
+		if _, closed := errors.AsType[*transport.ConnError](err); !closed || retried {
+			return nil, cc.openError(ctx, err)
+		}
+	}
 }
 
 func (cc *ClientConn) openError(ctx context.Context, err error) error {
