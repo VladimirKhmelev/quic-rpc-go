@@ -29,6 +29,7 @@ const (
 	tokTrailers
 	tokBadTrailers // TRAILERS with a status code above Unauthenticated
 	tokUnknownType // a frame type the protocol does not define
+	tokGoAway      // GOAWAY, which belongs on the server's unidirectional stream
 	tokTruncated   // a frame cut short by FIN; only ever last
 )
 
@@ -108,7 +109,7 @@ func drawResponse(t *rapid.T) []token {
 		}
 		return append(toks, drawToken(t, tokTrailers))
 	}
-	kinds := []tokenKind{tokHeaders, tokHeadersWithMethod, tokMessage, tokTrailers, tokBadTrailers, tokUnknownType}
+	kinds := []tokenKind{tokHeaders, tokHeadersWithMethod, tokMessage, tokTrailers, tokBadTrailers, tokUnknownType, tokGoAway}
 	for range rapid.IntRange(0, 6).Draw(t, "frames") {
 		toks = append(toks, drawToken(t, rapid.SampledFrom(kinds).Draw(t, "kind")))
 	}
@@ -142,6 +143,8 @@ func encode(t *rapid.T, toks []token) []byte {
 			appendProto(frame.TypeTrailers, &framepb.Trailers{Code: frame.MaxStatusCode + 1})
 		case tokUnknownType:
 			b = frame.AppendFrame(b, 0x07, nil)
+		case tokGoAway:
+			b = frame.AppendFrame(b, frame.TypeGoAway, nil)
 		case tokTruncated:
 			full := frame.AppendFrame(nil, frame.TypeMessage, tk.payload)
 			b = append(b, full[:len(full)-1]...)
@@ -176,7 +179,7 @@ func modelClient(toks []token) outcome {
 			o.headerKnown = true
 			o.end = endProtocol
 			return o
-		default: // HEADERS with a method, unknown type, truncated frame
+		default: // HEADERS with a method, unknown type, GOAWAY, truncated frame
 			o.end = endProtocol
 			return o
 		}
@@ -292,7 +295,7 @@ func TestReadRequestHeadersMatchesModel(t *testing.T) {
 			wire = encode(t, []token{drawToken(t, tokHeaders)})
 			wantErr = ErrProtocol
 		case 2: // the call starts with another frame
-			k := rapid.SampledFrom([]tokenKind{tokMessage, tokTrailers, tokUnknownType, tokTruncated}).Draw(t, "kind")
+			k := rapid.SampledFrom([]tokenKind{tokMessage, tokTrailers, tokUnknownType, tokGoAway, tokTruncated}).Draw(t, "kind")
 			wire = encode(t, []token{drawToken(t, k)})
 			wantErr = ErrProtocol
 		case 3: // FIN right away

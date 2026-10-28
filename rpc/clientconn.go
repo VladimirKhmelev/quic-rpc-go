@@ -21,24 +21,47 @@ var errClientConnClosing = status.Error(codes.Canceled, "client connection is cl
 // call and dials again on a later call once the connection has closed; calls
 // in flight on a lost connection fail with Unavailable. A call that finds
 // the connection closed before it has sent anything dials again and goes
-// out on the new connection. It is safe for concurrent use.
+// out on the new connection.
+//
+// When the server goes away (GOAWAY), later calls dial a new connection and
+// the old one closes once its calls are done. A call the server refused
+// meanwhile was not processed: a unary call goes out once more on the new
+// connection, a streaming call fails with Unavailable. A streaming call
+// keeps its connection until it ends or its context does.
+//
+// It is safe for concurrent use.
 type ClientConn struct {
 	dialer transport.Dialer
 
-	mu      sync.Mutex
-	conn    transport.Conn
+	mu sync.Mutex
+	// conn takes new calls; nil before the first dial and after GOAWAY.
+	conn *connection
+	// conns holds every open connection, those going away included.
+	conns   map[*connection]struct{}
 	dialing chan struct{} // closed when the dial in progress ends
 	closed  bool
+}
+
+// connection is a connection of a ClientConn. Its fields are guarded by
+// ClientConn.mu.
+type connection struct {
+	transport.Conn
+	// calls counts the calls on the connection, from before their stream
+	// opens until they end.
+	calls int
+	// goingAway is set once the server sent GOAWAY or refused a call: the
+	// connection takes no new calls and closes once calls drops to zero.
+	goingAway bool
 }
 
 var _ ClientConnInterface = (*ClientConn)(nil)
 
 // NewClient returns a ClientConn that dials with d. It does not dial yet.
 func NewClient(d transport.Dialer) *ClientConn {
-	return &ClientConn{dialer: d}
+	return &ClientConn{dialer: d, conns: map[*connection]struct{}{}}
 }
 
-// Close closes the connection. Calls in flight and later calls fail with
+// Close closes the connections. Calls in flight and later calls fail with
 // Canceled.
 func (cc *ClientConn) Close() error {
 	cc.mu.Lock()
@@ -47,13 +70,19 @@ func (cc *ClientConn) Close() error {
 		return errClientConnClosing
 	}
 	cc.closed = true
-	conn := cc.conn
 	cc.conn = nil
-	cc.mu.Unlock()
-	if conn != nil {
-		return conn.CloseWithError(transport.NoError, "client connection closed")
+	conns := make([]*connection, 0, len(cc.conns))
+	for c := range cc.conns {
+		conns = append(conns, c)
 	}
-	return nil
+	cc.mu.Unlock()
+	var err error
+	for _, c := range conns {
+		if cerr := c.CloseWithError(transport.NoError, "client connection closed"); err == nil {
+			err = cerr
+		}
+	}
+	return err
 }
 
 func (cc *ClientConn) isClosed() bool {
@@ -62,19 +91,20 @@ func (cc *ClientConn) isClosed() bool {
 	return cc.closed
 }
 
-// getConn returns the open connection, dialing if there is none. Concurrent
+// getConn returns the connection that takes new calls, dialing if there is
+// none, and counts a call on it in; the caller must release it. Concurrent
 // callers share one dial; each of them waits only as long as its ctx allows.
-func (cc *ClientConn) getConn(ctx context.Context) (transport.Conn, error) {
+func (cc *ClientConn) getConn(ctx context.Context) (*connection, error) {
 	for {
 		cc.mu.Lock()
 		if cc.closed {
 			cc.mu.Unlock()
 			return nil, errClientConnClosing
 		}
-		if cc.conn != nil && cc.conn.Context().Err() == nil {
-			conn := cc.conn
+		if c := cc.conn; c != nil && c.Context().Err() == nil {
+			c.calls++
 			cc.mu.Unlock()
-			return conn, nil
+			return c, nil
 		}
 		if wait := cc.dialing; wait != nil {
 			cc.mu.Unlock()
@@ -95,8 +125,11 @@ func (cc *ClientConn) getConn(ctx context.Context) (transport.Conn, error) {
 		cc.dialing = nil
 		close(done)
 		closed := cc.closed
+		var c *connection
 		if err == nil && !closed {
-			cc.conn = conn
+			c = &connection{Conn: conn, calls: 1}
+			cc.conn = c
+			cc.conns[c] = struct{}{}
 		}
 		cc.mu.Unlock()
 
@@ -109,9 +142,61 @@ func (cc *ClientConn) getConn(ctx context.Context) (transport.Conn, error) {
 			_ = conn.CloseWithError(transport.NoError, "client connection closed")
 			return nil, errClientConnClosing
 		default:
-			return conn, nil
+			go cc.watch(c)
+			return c, nil
 		}
 	}
+}
+
+// release counts a call on c out. The last call on a connection that is
+// going away closes it.
+func (cc *ClientConn) release(c *connection) {
+	cc.mu.Lock()
+	c.calls--
+	last := c.goingAway && c.calls == 0
+	cc.mu.Unlock()
+	if last {
+		_ = c.CloseWithError(transport.NoError, "")
+	}
+}
+
+// goAway takes c out of use and closes it once its calls are done.
+func (cc *ClientConn) goAway(c *connection) {
+	cc.mu.Lock()
+	idle := !c.goingAway && c.calls == 0
+	c.goingAway = true
+	if cc.conn == c {
+		cc.conn = nil
+	}
+	cc.mu.Unlock()
+	if idle {
+		_ = c.CloseWithError(transport.NoError, "")
+	}
+}
+
+// watch waits for GOAWAY on c, the only thing the server sends on a
+// unidirectional stream, and forgets c once it closes.
+func (cc *ClientConn) watch(c *connection) {
+	defer func() {
+		cc.mu.Lock()
+		delete(cc.conns, c)
+		if cc.conn == c {
+			cc.conn = nil
+		}
+		cc.mu.Unlock()
+	}()
+	st, err := c.AcceptUniStream(c.Context())
+	if err != nil {
+		return
+	}
+	if err := call.ReadGoAway(frame.NewReader(st, frame.DefaultLimits())); err != nil {
+		if c.Context().Err() == nil {
+			_ = c.CloseWithError(transport.ProtocolError, err.Error())
+		}
+		return
+	}
+	cc.goAway(c)
+	<-c.Context().Done()
 }
 
 var unaryStreamDesc = StreamDesc{}
@@ -119,11 +204,18 @@ var unaryStreamDesc = StreamDesc{}
 // Invoke performs a unary call: it sends args and receives the response
 // into reply.
 func (cc *ClientConn) Invoke(ctx context.Context, method string, args, reply any, opts ...CallOption) error {
-	cs, err := cc.newStream(ctx, &unaryStreamDesc, method, opts, args, true)
-	if err != nil {
-		return err
+	// A call the server refused was not processed; it goes out once more,
+	// on a new connection, as grpc-go retries a stream refused with
+	// REFUSED_STREAM transparently (shouldRetry in stream.go).
+	for retried := false; ; retried = true {
+		cs, err := cc.newStream(ctx, &unaryStreamDesc, method, opts, args, true)
+		if err != nil {
+			return err
+		}
+		if err := cs.RecvMsg(reply); !cs.refused || retried {
+			return err
+		}
 	}
-	return cs.RecvMsg(reply)
 }
 
 // NewStream starts a streaming call described by desc.
@@ -141,9 +233,14 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
 	}
-	st, err := cc.openStream(ctx)
+	c, st, err := cc.openStream(ctx)
 	if err != nil {
 		return nil, err
+	}
+	abort := func() {
+		st.CancelWrite(transport.Cancelled)
+		st.CancelRead(transport.Cancelled)
+		cc.release(c)
 	}
 
 	// The timeout is measured right before sending, after any wait for the
@@ -152,8 +249,7 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 	if deadline, ok := ctx.Deadline(); ok {
 		us, ok := call.TimeoutMicros(time.Until(deadline))
 		if !ok {
-			st.CancelWrite(transport.Cancelled)
-			st.CancelRead(transport.Cancelled)
+			abort()
 			return nil, status.Error(codes.DeadlineExceeded, context.DeadlineExceeded.Error())
 		}
 		timeoutUs = us
@@ -164,13 +260,13 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 		buf, err = call.AppendMessage(buf, req)
 	}
 	if err != nil {
-		st.CancelWrite(transport.Cancelled)
-		st.CancelRead(transport.Cancelled)
+		abort()
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	cs := &clientStream{
 		cc:          cc,
+		conn:        c,
 		ctx:         ctx,
 		desc:        desc,
 		st:          st,
@@ -181,6 +277,7 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 	cs.stopCancel = context.AfterFunc(ctx, func() {
 		st.CancelWrite(transport.Cancelled)
 		st.CancelRead(transport.Cancelled)
+		cs.releaseConn()
 	})
 	// A failed write is not reported here: every cause (reset, lost
 	// connection, cancellation) also ends the receive side, where RecvMsg
@@ -191,25 +288,27 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 	return cs, nil
 }
 
-// openStream opens a stream, dialing if there is no connection. The
+// openStream opens a stream, dialing if there is no connection, and
+// returns the connection it is on, with the call counted in. The
 // connection may have closed before the client noticed; a stream that fails
 // to open on it has sent nothing, so the call dials again and tries once
 // more (RPC-12). grpc-go retries such a call transparently as well:
 // NewStreamError.AllowTransparentRetry (internal/transport/http2_client.go).
-func (cc *ClientConn) openStream(ctx context.Context) (transport.Stream, error) {
+func (cc *ClientConn) openStream(ctx context.Context) (*connection, transport.Stream, error) {
 	for retried := false; ; retried = true {
-		conn, err := cc.getConn(ctx)
+		c, err := cc.getConn(ctx)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		st, err := conn.OpenStream(ctx)
+		st, err := c.OpenStream(ctx)
 		if err == nil {
-			return st, nil
+			return c, st, nil
 		}
+		cc.release(c)
 		// The failed connection's context is canceled by now (see
 		// transport.Conn), so getConn dials a new one.
 		if _, closed := errors.AsType[*transport.ConnError](err); !closed || retried {
-			return nil, cc.openError(ctx, err)
+			return nil, nil, cc.openError(ctx, err)
 		}
 	}
 }

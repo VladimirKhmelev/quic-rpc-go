@@ -42,6 +42,15 @@ func newStreamPair(s *session, release func()) (client, server *stream) {
 	return &stream{in: s2c, out: c2s, pair: pair}, &stream{in: c2s, out: s2c, pair: pair}
 }
 
+// newUniStreamPair returns the ends of a stream from the server to the
+// client: the server end only writes, the client end only reads.
+func newUniStreamPair(s *session, release func()) (server, client *stream) {
+	pair := &streamPair{release: release}
+	pair.pending.Store(2) // one direction and the accept
+	s2c := newPipe(s, serverSide, s.window, pair.step)
+	return &stream{out: s2c, pair: pair}, &stream{in: s2c, pair: pair}
+}
+
 func (s *stream) Read(b []byte) (int, error)           { return s.in.read(b) }
 func (s *stream) Write(b []byte) (int, error)          { return s.out.write(b) }
 func (s *stream) Close() error                         { return s.out.closeWrite() }

@@ -21,8 +21,13 @@ func ClientStatus(err error) *istatus.Status {
 		return istatus.New(codes.Unavailable, ce.Error())
 	}
 	if se, ok := errors.AsType[*transport.StreamError](err); ok {
-		if se.Code == transport.Cancelled {
+		switch se.Code {
+		case transport.Cancelled:
 			return istatus.New(codes.Canceled, se.Error())
+		case transport.Refused:
+			// The server is going away and did not process the call, as
+			// with REFUSED_STREAM in grpc-go.
+			return istatus.New(codes.Unavailable, se.Error())
 		}
 		return istatus.New(codes.Internal, se.Error())
 	}

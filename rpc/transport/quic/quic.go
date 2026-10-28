@@ -2,10 +2,11 @@
 //
 // Every call is one bidirectional QUIC stream opened by the client. The
 // package takes copies of the caller's TLS and QUIC configurations and
-// adjusts them for the protocol: the ALPN is set to "qrpc/1", unidirectional
-// streams are disabled and the client accepts no streams from the server.
-// The client also sends keepalives unless told otherwise (see Dialer). All
-// other settings are kept.
+// adjusts them for the protocol: the ALPN is set to "qrpc/2", the server
+// accepts no unidirectional streams, and the client accepts no
+// bidirectional streams and one unidirectional stream at a time, which the
+// server opens to send GOAWAY. The client also sends keepalives unless told
+// otherwise (see Dialer). All other settings are kept.
 //
 // A server that restarts should listen with NewListener on a transport with
 // a stateless reset key that stays the same across restarts. When a server
@@ -33,8 +34,8 @@ import (
 	"github.com/VladimirKhmelev/quic-rpc-go/rpc/transport"
 )
 
-// ALPN is the TLS application protocol of quic-rpc-go, version 1.
-const ALPN = "qrpc/1"
+// ALPN is the TLS application protocol of quic-rpc-go, version 2.
+const ALPN = "qrpc/2"
 
 // Listener accepts QUIC connections.
 type Listener struct {
@@ -149,6 +150,7 @@ func configureQUIC(c *quic.Config, client bool) *quic.Config {
 	c.MaxIncomingUniStreams = -1
 	if client {
 		c.MaxIncomingStreams = -1
+		c.MaxIncomingUniStreams = 1
 		switch {
 		case c.KeepAlivePeriod < 0:
 			c.KeepAlivePeriod = 0
@@ -189,7 +191,7 @@ func (c *conn) OpenStream(ctx context.Context) (transport.Stream, error) {
 	if err != nil {
 		return nil, c.convert(err)
 	}
-	return &stream{c: c, qs: qs}, nil
+	return newStream(c, qs), nil
 }
 
 func (c *conn) AcceptStream(ctx context.Context) (transport.Stream, error) {
@@ -197,7 +199,23 @@ func (c *conn) AcceptStream(ctx context.Context) (transport.Stream, error) {
 	if err != nil {
 		return nil, c.convert(err)
 	}
-	return &stream{c: c, qs: qs}, nil
+	return newStream(c, qs), nil
+}
+
+func (c *conn) OpenUniStream(ctx context.Context) (transport.SendStream, error) {
+	qs, err := c.qc.OpenUniStreamSync(ctx)
+	if err != nil {
+		return nil, c.convert(err)
+	}
+	return &sendStream{c: c, qs: qs}, nil
+}
+
+func (c *conn) AcceptUniStream(ctx context.Context) (transport.ReceiveStream, error) {
+	qs, err := c.qc.AcceptUniStream(ctx)
+	if err != nil {
+		return nil, c.convert(err)
+	}
+	return &receiveStream{c: c, qs: qs}, nil
 }
 
 // CloseWithError returns once quic-go has canceled its context
@@ -212,30 +230,6 @@ func (c *conn) CloseWithError(code transport.ErrorCode, reason string) error {
 
 func (c *conn) Context() context.Context { return c.ctx }
 
-// maxAckDelay is the max_ack_delay that quic-go announces, the default of
-// RFC 9000: a peer may wait that long before it acknowledges.
-const maxAckDelay = 25 * time.Millisecond
-
-// Drain waits three probe timeouts (RFC 9002, section 6.2.1) of the
-// connection: long enough for data that quic-go has sent to arrive even
-// after two retransmissions. quic-go does not tell when the peer has
-// acknowledged everything, and the peer's application must have read the
-// data by then, as a client waiting for its answer does.
-func (c *conn) Drain(ctx context.Context) error {
-	st := c.qc.ConnectionStats()
-	pto := st.SmoothedRTT + max(4*st.MeanDeviation, time.Millisecond) + maxAckDelay
-	timer := time.NewTimer(3 * pto)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return nil
-	case <-c.ctx.Done():
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 // convert is convertError that also cancels the connection context when err
 // reports the connection closed.
 func (c *conn) convert(err error) error {
@@ -246,37 +240,67 @@ func (c *conn) convert(err error) error {
 	return err
 }
 
-type stream struct {
+// quicReceiveStream and quicSendStream are the directions of quic-go's
+// streams: *quic.Stream is both, *quic.ReceiveStream and *quic.SendStream
+// are one each.
+type (
+	quicReceiveStream interface {
+		Read(b []byte) (int, error)
+		CancelRead(code quic.StreamErrorCode)
+	}
+	quicSendStream interface {
+		Write(b []byte) (int, error)
+		Close() error
+		CancelWrite(code quic.StreamErrorCode)
+		Context() context.Context
+	}
+)
+
+type receiveStream struct {
 	c  *conn
-	qs *quic.Stream
+	qs quicReceiveStream
+}
+
+func (s *receiveStream) Read(b []byte) (int, error) {
+	n, err := s.qs.Read(b)
+	return n, s.c.convert(err)
+}
+
+func (s *receiveStream) CancelRead(code transport.ErrorCode) {
+	s.qs.CancelRead(quic.StreamErrorCode(code))
+}
+
+type sendStream struct {
+	c  *conn
+	qs quicSendStream
 
 	ctxOnce sync.Once
 	ctx     context.Context
 }
 
-func (s *stream) Read(b []byte) (int, error) {
-	n, err := s.qs.Read(b)
-	return n, s.c.convert(err)
-}
-
-func (s *stream) Write(b []byte) (int, error) {
+func (s *sendStream) Write(b []byte) (int, error) {
 	n, err := s.qs.Write(b)
 	return n, s.c.convert(err)
 }
 
-func (s *stream) Close() error { return s.c.convert(s.qs.Close()) }
+func (s *sendStream) Close() error { return s.c.convert(s.qs.Close()) }
 
-func (s *stream) CancelWrite(code transport.ErrorCode) {
+func (s *sendStream) CancelWrite(code transport.ErrorCode) {
 	s.qs.CancelWrite(quic.StreamErrorCode(code))
 }
 
-func (s *stream) CancelRead(code transport.ErrorCode) {
-	s.qs.CancelRead(quic.StreamErrorCode(code))
+type stream struct {
+	receiveStream
+	sendStream
+}
+
+func newStream(c *conn, qs *quic.Stream) *stream {
+	return &stream{receiveStream{c: c, qs: qs}, sendStream{c: c, qs: qs}}
 }
 
 // Context translates the cause of quic-go's stream context. It is built on
 // first use: the client side of a call never needs it.
-func (s *stream) Context() context.Context {
+func (s *sendStream) Context() context.Context {
 	s.ctxOnce.Do(func() {
 		qctx := s.qs.Context()
 		ctx, cancel := context.WithCancelCause(context.Background())

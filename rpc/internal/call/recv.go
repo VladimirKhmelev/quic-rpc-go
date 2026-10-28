@@ -202,7 +202,7 @@ func (r *ClientRecv) next() ([]byte, error) {
 	case frame.TypeMessage:
 		r.markHeaderKnown()
 		return f.Payload, nil
-	default: // TRAILERS
+	case frame.TypeTrailers:
 		r.markHeaderKnown()
 		t, err := frame.DecodeTrailers(f.Payload)
 		if err != nil {
@@ -218,5 +218,7 @@ func (r *ClientRecv) next() ([]byte, error) {
 		r.status = istatus.FromWire(codes.Code(t.GetCode()), t.GetMessage(), t.GetDetails())
 		r.trailer = frame.DecodeMetadata(t.GetMetadata())
 		return nil, io.EOF
+	default:
+		return nil, protocolError("server sent %v on a call", f.Type)
 	}
 }

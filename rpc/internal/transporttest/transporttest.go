@@ -42,8 +42,10 @@ func Run(t *testing.T, newTransport Factory) {
 		{"ServerCannotOpenStreams", testServerCannotOpenStreams},
 		{"AcceptStreamHonorsContext", testAcceptStreamHonorsContext},
 		{"CloseWithError", testCloseWithError},
-		{"DrainDelivers", testDrainDelivers},
-		{"DrainHonorsContext", testDrainHonorsContext},
+		{"UniStream", testUniStream},
+		{"UniStreamCancelWrite", testUniStreamCancelWrite},
+		{"UniStreamLimit", testUniStreamLimit},
+		{"ClientCannotOpenUniStreams", testClientCannotOpenUniStreams},
 		{"ConnErrorCancelsContext", testConnErrorCancelsContext},
 		{"ListenerClose", testListenerClose},
 	}
@@ -116,21 +118,39 @@ func accept(t *testing.T, c transport.Conn) transport.Stream {
 	return s
 }
 
-func write(t *testing.T, s transport.Stream, b []byte) {
+func openUni(t *testing.T, c transport.Conn) transport.SendStream {
+	t.Helper()
+	s, err := c.OpenUniStream(Context(t))
+	if err != nil {
+		t.Fatalf("OpenUniStream: %v", err)
+	}
+	return s
+}
+
+func acceptUni(t *testing.T, c transport.Conn) transport.ReceiveStream {
+	t.Helper()
+	s, err := c.AcceptUniStream(Context(t))
+	if err != nil {
+		t.Fatalf("AcceptUniStream: %v", err)
+	}
+	return s
+}
+
+func write(t *testing.T, s transport.SendStream, b []byte) {
 	t.Helper()
 	if _, err := s.Write(b); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 }
 
-func closeStream(t *testing.T, s transport.Stream) {
+func closeStream(t *testing.T, s transport.SendStream) {
 	t.Helper()
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 }
 
-func readAll(t *testing.T, s transport.Stream) []byte {
+func readAll(t *testing.T, s transport.ReceiveStream) []byte {
 	t.Helper()
 	b, err := io.ReadAll(s)
 	if err != nil {
@@ -435,57 +455,62 @@ func testCloseWithError(t *testing.T, f Factory) {
 	wantClosed(waitDone(t, ss, "server stream"), true, "server stream context cause")
 }
 
-// testDrainDelivers: after Drain the server may close the connection
-// without the client losing what it was sent, as a server that stops
-// gently does once its calls are done.
-func testDrainDelivers(t *testing.T, f Factory) {
+// testUniStream: the server sends on a unidirectional stream and the client
+// reads it up to FIN. The stream reaches the client with its first data, as
+// in QUIC, so the server writes before the client accepts.
+func testUniStream(t *testing.T, f Factory) {
 	client, server := Pair(t, f, 10)
-	cs := open(t, client)
-	write(t, cs, []byte("call"))
-	closeStream(t, cs)
-	ss := accept(t, server)
-	if got := readAll(t, ss); string(got) != "call" {
-		t.Fatalf("server read %q", got)
-	}
-	answer := Pattern(100<<10, 1)
-	got := make(chan []byte, 1)
-	go func() {
-		b, err := io.ReadAll(cs)
-		if err != nil {
-			t.Errorf("client read: %v", err)
-		}
-		got <- b
-	}()
-	write(t, ss, answer)
+	data := Pattern(100<<10, 1)
+	ss := openUni(t, server)
+	write(t, ss, data)
 	closeStream(t, ss)
-	if err := server.Drain(Context(t)); err != nil {
-		t.Fatalf("Drain: %v", err)
+	if got := readAll(t, acceptUni(t, client)); !bytes.Equal(got, data) {
+		t.Fatalf("client read %d bytes, want %d", len(got), len(data))
 	}
-	if err := server.CloseWithError(transport.NoError, ""); err != nil {
-		t.Fatal(err)
-	}
-	if b := <-got; !bytes.Equal(b, answer) {
-		t.Fatalf("client read %d bytes, want %d", len(b), len(answer))
-	}
-	// On a closed connection Drain returns at once.
-	if err := server.Drain(Context(t)); err != nil {
-		t.Errorf("Drain after close: %v", err)
+	if cause := waitDone(t, ss, "server stream"); !errors.Is(cause, transport.ErrStreamClosed) {
+		t.Fatalf("server stream context cause: %v, want ErrStreamClosed", cause)
 	}
 }
 
-// testDrainHonorsContext: Drain returns ctx's error if ctx ends first. mem
-// waits here for the client to read, QUIC for three probe timeouts, at
-// least 75 ms; both outlast a context of 20 ms.
-func testDrainHonorsContext(t *testing.T, f Factory) {
+func testUniStreamCancelWrite(t *testing.T, f Factory) {
 	client, server := Pair(t, f, 10)
-	cs := open(t, client)
-	write(t, cs, []byte("call"))
-	ss := accept(t, server)
-	write(t, ss, []byte("unread"))
-	ctx, cancel := context.WithTimeout(Context(t), 20*time.Millisecond)
+	ss := openUni(t, server)
+	write(t, ss, []byte("x"))
+	ss.CancelWrite(transport.Refused)
+	_, err := io.ReadAll(acceptUni(t, client))
+	wantStreamError(t, err, transport.Refused, true, "client Read after the server's CancelWrite")
+}
+
+// testUniStreamLimit: the client takes one unidirectional stream at a time;
+// once it has read the first up to FIN, the server opens the next.
+func testUniStreamLimit(t *testing.T, f Factory) {
+	client, server := Pair(t, f, 10)
+	first := openUni(t, server)
+	write(t, first, []byte("1"))
+	closeStream(t, first)
+	ctx, cancel := context.WithTimeout(Context(t), blockedFor)
 	defer cancel()
-	if err := server.Drain(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Drain with unread data: %v", err)
+	if _, err := server.OpenUniStream(ctx); err == nil {
+		t.Fatal("the server opened a second unidirectional stream while the first was open")
+	}
+	readAll(t, acceptUni(t, client))
+	second := openUni(t, server)
+	write(t, second, []byte("2"))
+	closeStream(t, second)
+	if got := readAll(t, acceptUni(t, client)); string(got) != "2" {
+		t.Fatalf("client read %q from the second stream", got)
+	}
+}
+
+func testClientCannotOpenUniStreams(t *testing.T, f Factory) {
+	client, server := Pair(t, f, 10)
+	ctx, cancel := context.WithTimeout(Context(t), blockedFor)
+	defer cancel()
+	if s, err := client.OpenUniStream(ctx); err == nil {
+		t.Fatalf("client opened unidirectional stream %v", s)
+	}
+	if s, err := server.AcceptUniStream(ctx); err == nil {
+		t.Fatalf("server accepted unidirectional stream %v", s)
 	}
 }
 
@@ -529,6 +554,12 @@ func testConnErrorCancelsContext(t *testing.T, f Factory) {
 		closeConn(t, client)
 		_, err := server.AcceptStream(Context(t))
 		wantDone(t, server, err, "AcceptStream")
+	})
+	t.Run("AcceptUniStream", func(t *testing.T) {
+		client, server := Pair(t, f, 10)
+		closeConn(t, server)
+		_, err := client.AcceptUniStream(Context(t))
+		wantDone(t, client, err, "AcceptUniStream")
 	})
 	t.Run("Read", func(t *testing.T) {
 		client, server := Pair(t, f, 10)
