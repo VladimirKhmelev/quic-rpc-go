@@ -4,7 +4,9 @@
 // It mirrors QUIC stream semantics: every stream direction has a bounded
 // buffer (the flow-control window), Close sends FIN, CancelWrite and
 // CancelRead reset a direction, the number of concurrently open streams is
-// limited and closing the connection fails every stream.
+// limited and closing the connection fails every stream. As the QUIC
+// transport configures quic-go, the client opens bidirectional streams and
+// the server unidirectional ones, one at a time.
 //
 // Unlike QUIC there is no connection-level flow-control window, so code that
 // deadlocks only when many streams together exhaust it passes on mem; run
@@ -52,7 +54,10 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-var errServerOpen = errors.New("mem: streams are opened by the client side only")
+var (
+	errServerOpen = errors.New("mem: bidirectional streams are opened by the client side only")
+	errClientUni  = errors.New("mem: unidirectional streams are opened by the server side only")
+)
 
 // Listener accepts in-process connections created by its Dial method, so it
 // is both a transport.Listener and a transport.Dialer.
@@ -137,11 +142,11 @@ type session struct {
 	// accept queues streams opened by the client until the server accepts
 	// them. A stream keeps its slot until accepted, so this never fills up.
 	accept chan *stream
-	ends   [2]*conn
-	// mu guards released, which is closed and replaced whenever a stream
-	// gives its slot back.
-	mu       sync.Mutex
-	released chan struct{}
+	// uniSlots and uniAccept do the same for unidirectional streams, which
+	// the client takes one at a time.
+	uniSlots  chan struct{}
+	uniAccept chan *stream
+	ends      [2]*conn
 
 	done      chan struct{}
 	closeOnce sync.Once
@@ -165,11 +170,12 @@ type conn struct {
 
 func newConnPair(opts Options) (client, server *conn) {
 	s := &session{
-		window:   opts.StreamWindow,
-		slots:    make(chan struct{}, opts.MaxIncomingStreams),
-		accept:   make(chan *stream, opts.MaxIncomingStreams),
-		released: make(chan struct{}),
-		done:     make(chan struct{}),
+		window:    opts.StreamWindow,
+		slots:     make(chan struct{}, opts.MaxIncomingStreams),
+		accept:    make(chan *stream, opts.MaxIncomingStreams),
+		uniSlots:  make(chan struct{}, 1),
+		uniAccept: make(chan *stream, 1),
+		done:      make(chan struct{}),
 	}
 	for side := range s.ends {
 		ctx, cancel := context.WithCancelCause(context.Background())
@@ -192,7 +198,7 @@ func (c *conn) OpenStream(ctx context.Context) (transport.Stream, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	clientEnd, serverEnd := newStreamPair(c.s, c.s.release)
+	clientEnd, serverEnd := newStreamPair(c.s, func() { <-c.s.slots })
 	c.s.accept <- serverEnd
 	return clientEnd, nil
 }
@@ -216,33 +222,41 @@ func (c *conn) AcceptStream(ctx context.Context) (transport.Stream, error) {
 	}
 }
 
-// release gives the slot of a finished stream back.
-func (s *session) release() {
-	<-s.slots
-	s.mu.Lock()
-	close(s.released)
-	s.released = make(chan struct{})
-	s.mu.Unlock()
+func (c *conn) OpenUniStream(ctx context.Context) (transport.SendStream, error) {
+	if c.side != serverSide {
+		return nil, errClientUni
+	}
+	if isClosed(c.s.done) {
+		return nil, c.s.errFor(c.side)
+	}
+	select {
+	case c.s.uniSlots <- struct{}{}:
+	case <-c.s.done:
+		return nil, c.s.errFor(c.side)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	serverEnd, clientEnd := newUniStreamPair(c.s, func() { <-c.s.uniSlots })
+	c.s.uniAccept <- clientEnd
+	return serverEnd, nil
 }
 
-// Drain waits until no stream holds a slot: every stream is done in both
-// directions, read up to FIN or reset, and accepted. Unlike QUIC, mem knows
-// exactly that the peer has read everything.
-func (c *conn) Drain(ctx context.Context) error {
-	for {
-		c.s.mu.Lock()
-		released := c.s.released
-		c.s.mu.Unlock()
-		if len(c.s.slots) == 0 || isClosed(c.s.done) {
-			return nil
-		}
-		select {
-		case <-released:
-		case <-c.s.done:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+func (c *conn) AcceptUniStream(ctx context.Context) (transport.ReceiveStream, error) {
+	if isClosed(c.s.done) {
+		return nil, c.s.errFor(c.side)
+	}
+	var incoming chan *stream
+	if c.side == clientSide {
+		incoming = c.s.uniAccept
+	}
+	select {
+	case st := <-incoming:
+		st.pair.step()
+		return st, nil
+	case <-c.s.done:
+		return nil, c.s.errFor(c.side)
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
