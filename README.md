@@ -34,9 +34,11 @@ RPC для Go поверх нативных потоков QUIC ([quic-go](https
 Нужен Go 1.26.3 или новее. Модули версионируются отдельно, версии v0.x: до конца фазы 3 API может меняться.
 
 ```sh
-go get github.com/VladimirKhmelev/quic-rpc-go/rpc@v0.1.0          # библиотека
-go get github.com/VladimirKhmelev/quic-rpc-go/grpcbridge@v0.1.0   # код grpc-go поверх quic-rpc-go
+go get github.com/VladimirKhmelev/quic-rpc-go/rpc@v0.2.0          # библиотека
+go get github.com/VladimirKhmelev/quic-rpc-go/grpcbridge@v0.2.0   # код grpc-go поверх quic-rpc-go
 ```
+
+Версии v0.2 говорят по протоколу версии 2 (`qrpc/2`, [описание](docs/protocol.md)) и не соединяются с клиентами и серверами v0.1: обновлять нужно обе стороны сразу.
 
 `grpcbridge` подставляет quic-rpc-go под клиенты и серверы, сгенерированные protoc-gen-go-grpc; пример — в документации пакета.
 
