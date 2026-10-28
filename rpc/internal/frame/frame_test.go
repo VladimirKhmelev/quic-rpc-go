@@ -115,12 +115,24 @@ func TestTruncated(t *testing.T) {
 }
 
 func TestUnknownType(t *testing.T) {
-	for _, typ := range []frame.Type{0x03, 0x3f, 0x40, 1 << 20} {
+	for _, typ := range []frame.Type{0x04, 0x3f, 0x40, 1 << 20} {
 		wire := frame.AppendFrame(nil, typ, pattern(3))
 		_, err := frame.NewReader(bytes.NewReader(wire), frame.DefaultLimits()).ReadFrame()
 		if !errors.Is(err, frame.ErrUnknownType) {
 			t.Errorf("type %v: got %v, want ErrUnknownType", typ, err)
 		}
+	}
+}
+
+// TestGoAway: GOAWAY has an empty payload.
+func TestGoAway(t *testing.T) {
+	f, err := frame.NewReader(bytes.NewReader(frame.AppendFrame(nil, frame.TypeGoAway, nil)), frame.DefaultLimits()).ReadFrame()
+	if err != nil || f.Type != frame.TypeGoAway || len(f.Payload) != 0 {
+		t.Fatalf("ReadFrame: %v %q, %v", f.Type, f.Payload, err)
+	}
+	wire := frame.AppendFrame(nil, frame.TypeGoAway, []byte{0})
+	if _, err := frame.NewReader(bytes.NewReader(wire), frame.DefaultLimits()).ReadFrame(); !errors.Is(err, frame.ErrTooLarge) {
+		t.Fatalf("GOAWAY with a payload: %v, want ErrTooLarge", err)
 	}
 }
 

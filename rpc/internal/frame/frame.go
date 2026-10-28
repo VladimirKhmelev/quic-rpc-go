@@ -24,6 +24,9 @@ const (
 	TypeMessage  Type = 0x00
 	TypeHeaders  Type = 0x01
 	TypeTrailers Type = 0x02
+	// TypeGoAway has an empty payload; it is sent on the server's
+	// unidirectional stream only.
+	TypeGoAway Type = 0x03
 )
 
 func (t Type) String() string {
@@ -34,6 +37,8 @@ func (t Type) String() string {
 		return "HEADERS"
 	case TypeTrailers:
 		return "TRAILERS"
+	case TypeGoAway:
+		return "GOAWAY"
 	default:
 		return fmt.Sprintf("Type(%#x)", uint64(t))
 	}
@@ -136,6 +141,8 @@ func (r *Reader) limit(t Type) (uint64, bool) {
 		return r.limits.MaxMessageSize, true
 	case TypeHeaders, TypeTrailers:
 		return r.limits.MaxHeadersSize, true
+	case TypeGoAway:
+		return 0, true
 	default:
 		return 0, false
 	}
