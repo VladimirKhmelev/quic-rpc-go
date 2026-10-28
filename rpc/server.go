@@ -30,18 +30,28 @@ type Server struct {
 	mu        sync.Mutex
 	services  map[string]*serviceInfo
 	listeners map[transport.Listener]struct{}
-	conns     map[transport.Conn]struct{}
+	conns     map[transport.Conn]*serverConn
 	serving   bool
 	stopped   bool
-	// draining is set by GracefulStop: the listeners are closed, the
-	// connections still serve.
+	// draining is set by GracefulStop: the listeners are closed and every
+	// connection gets GOAWAY.
 	draining bool
-	// active counts the calls in flight; idle, if set, is closed when the
-	// count drops to zero or the server stops.
+	// active counts the calls in flight. wake, if set, is closed when the
+	// count drops to zero, a connection closes or the server stops: it
+	// wakes GracefulStop.
 	active int
-	idle   chan struct{}
-	// serveWG counts Serve loops and per-connection loops, not handlers.
+	wake   chan struct{}
+	// serveWG counts Serve loops, per-connection loops and GOAWAY senders,
+	// not handlers.
 	serveWG sync.WaitGroup
+}
+
+// serverConn is the state of a connection. Its fields are guarded by
+// Server.mu.
+type serverConn struct {
+	// goingAway is set once the server sends GOAWAY on the connection; from
+	// then on it refuses the streams it accepts.
+	goingAway bool
 }
 
 var _ ServiceRegistrar = (*Server)(nil)
@@ -60,7 +70,7 @@ func NewServer() *Server {
 		cancel:    cancel,
 		services:  map[string]*serviceInfo{},
 		listeners: map[transport.Listener]struct{}{},
-		conns:     map[transport.Conn]struct{}{},
+		conns:     map[transport.Conn]*serverConn{},
 	}
 }
 
@@ -126,11 +136,12 @@ func (s *Server) Serve(l transport.Listener) error {
 			}
 			return err
 		}
-		if !s.addConn(conn) {
+		sc, ok := s.addConn(conn)
+		if !ok {
 			_ = conn.CloseWithError(transport.NoError, "server stopped")
 			return nil
 		}
-		go s.serveConn(conn)
+		go s.serveConn(conn, sc)
 	}
 }
 
@@ -142,23 +153,29 @@ func (s *Server) isStopped() bool {
 }
 
 // addConn registers conn and counts its loop in serveWG; it reports false
-// once the server is stopped.
-func (s *Server) addConn(conn transport.Conn) bool {
+// once the server is stopped. A connection that comes in during
+// GracefulStop gets GOAWAY at once.
+func (s *Server) addConn(conn transport.Conn) (*serverConn, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stopped {
-		return false
+		return nil, false
 	}
-	s.conns[conn] = struct{}{}
+	sc := &serverConn{}
+	s.conns[conn] = sc
 	s.serveWG.Add(1)
-	return true
+	if s.draining {
+		s.goAwayLocked(conn, sc)
+	}
+	return sc, true
 }
 
-func (s *Server) serveConn(conn transport.Conn) {
+func (s *Server) serveConn(conn transport.Conn, sc *serverConn) {
 	defer s.serveWG.Done()
 	defer func() {
 		s.mu.Lock()
 		delete(s.conns, conn)
+		s.wakeLocked()
 		s.mu.Unlock()
 	}()
 	for {
@@ -168,7 +185,14 @@ func (s *Server) serveConn(conn transport.Conn) {
 		}
 		// Counted before the goroutine starts, so that GracefulStop never
 		// misses an accepted call.
-		s.callStarted()
+		if !s.callStarted(sc) {
+			// The client opened the stream before GOAWAY reached it. The
+			// call is not processed, so the client may send it again on
+			// another connection.
+			st.CancelRead(transport.Refused)
+			st.CancelWrite(transport.Refused)
+			continue
+		}
 		go func() {
 			defer s.callDone()
 			s.handleStream(st)
@@ -176,37 +200,61 @@ func (s *Server) serveConn(conn transport.Conn) {
 	}
 }
 
-func (s *Server) callStarted() {
+// callStarted counts a call on sc in; it reports false if sc is going away.
+func (s *Server) callStarted(sc *serverConn) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sc.goingAway {
+		return false
+	}
 	s.active++
-	s.mu.Unlock()
+	return true
 }
 
 func (s *Server) callDone() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.active--; s.active == 0 {
-		s.wakeIdle()
+		s.wakeLocked()
 	}
 }
 
-// wakeIdle wakes GracefulStop. s.mu must be held.
-func (s *Server) wakeIdle() {
-	if s.idle != nil {
-		close(s.idle)
-		s.idle = nil
+// wakeLocked wakes GracefulStop. s.mu must be held.
+func (s *Server) wakeLocked() {
+	if s.wake != nil {
+		close(s.wake)
+		s.wake = nil
 	}
 }
 
-// GracefulStop stops the server gently. It closes the listeners at once but
-// keeps serving the connections it has, new calls on them included, and
-// waits for a moment when no call is in flight and the clients have read
-// what the calls sent (transport.Conn.Drain); then it stops as Stop does.
-// The protocol cannot yet tell clients to send their calls elsewhere
-// (RPC-16, docs/protocol.md), so under a steady load the wait ends at the
-// first such moment, not when the clients have gone. If ctx ends first, or
-// Stop is called meanwhile, it stops at once: the calls still in flight
-// fail with Unavailable on the client.
+// goAwayLocked sends GOAWAY on conn unless it was sent already. s.mu must
+// be held.
+func (s *Server) goAwayLocked(conn transport.Conn, sc *serverConn) {
+	if sc.goingAway {
+		return
+	}
+	sc.goingAway = true
+	s.serveWG.Go(func() {
+		// Gives up once the connection closes or the server stops.
+		st, err := conn.OpenUniStream(s.ctx)
+		if err != nil {
+			return
+		}
+		if _, err := st.Write(call.AppendGoAway(nil)); err == nil {
+			_ = st.Close()
+		}
+	})
+}
+
+// GracefulStop stops the server gently. It closes the listeners at once and
+// sends GOAWAY on every connection: the client opens no more calls on it and
+// closes it once its calls are done. The calls the client opened before
+// GOAWAY reached it are refused unprocessed, and the client sends them again
+// on a new connection (docs/protocol.md). GracefulStop waits until the
+// clients have closed all connections and the handlers have returned; then
+// it stops as Stop does. If ctx ends first, or Stop is called meanwhile, it
+// stops at once: the calls still in flight fail with Unavailable on the
+// client.
 func (s *Server) GracefulStop(ctx context.Context) {
 	s.mu.Lock()
 	s.draining = true
@@ -214,58 +262,37 @@ func (s *Server) GracefulStop(ctx context.Context) {
 	for l := range s.listeners {
 		listeners = append(listeners, l)
 	}
+	for conn, sc := range s.conns {
+		s.goAwayLocked(conn, sc)
+	}
 	s.mu.Unlock()
 	for _, l := range listeners {
 		_ = l.Close()
 	}
-	for s.waitIdle(ctx) && s.drain(ctx) {
-		s.mu.Lock()
-		idle := s.active == 0 || s.stopped
-		s.mu.Unlock()
-		if idle {
-			break
-		}
-		// Calls came in while the connections drained.
-	}
+	s.waitGone(ctx)
 	s.Stop()
 }
 
-// waitIdle waits until no call is in flight or the server stops, and
-// reports false if ctx ends first.
-func (s *Server) waitIdle(ctx context.Context) bool {
+// waitGone waits until no connection is open and no call is in flight, or
+// the server stops, or ctx ends.
+func (s *Server) waitGone(ctx context.Context) {
 	for {
 		s.mu.Lock()
-		if s.active == 0 || s.stopped {
+		if (len(s.conns) == 0 && s.active == 0) || s.stopped {
 			s.mu.Unlock()
-			return true
+			return
 		}
-		if s.idle == nil {
-			s.idle = make(chan struct{})
+		if s.wake == nil {
+			s.wake = make(chan struct{})
 		}
-		idle := s.idle
+		wake := s.wake
 		s.mu.Unlock()
 		select {
-		case <-idle:
+		case <-wake:
 		case <-ctx.Done():
-			return false
+			return
 		}
 	}
-}
-
-// drain drains all connections at once and reports false if ctx ends first.
-func (s *Server) drain(ctx context.Context) bool {
-	s.mu.Lock()
-	conns := make([]transport.Conn, 0, len(s.conns))
-	for c := range s.conns {
-		conns = append(conns, c)
-	}
-	s.mu.Unlock()
-	var wg sync.WaitGroup
-	for _, c := range conns {
-		wg.Go(func() { _ = c.Drain(ctx) })
-	}
-	wg.Wait()
-	return ctx.Err() == nil
 }
 
 // Stop closes all listeners and connections at once and cancels the
@@ -280,7 +307,7 @@ func (s *Server) Stop() {
 		return
 	}
 	s.stopped = true
-	s.wakeIdle()
+	s.wakeLocked()
 	listeners := make([]transport.Listener, 0, len(s.listeners))
 	for l := range s.listeners {
 		listeners = append(listeners, l)

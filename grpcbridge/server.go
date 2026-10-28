@@ -144,11 +144,9 @@ func (s *Server) Serve(l transport.Listener) error {
 func (s *Server) Stop() { s.s.Stop() }
 
 // GracefulStop stops the server gently, as rpc.Server.GracefulStop does: it
-// takes no more connections, lets the calls in flight finish and the
-// clients read their answers, and waits at most the timeout of
-// GracefulStopTimeout. Unlike grpc-go's, it cannot yet tell the clients to
-// send their calls elsewhere, so the calls they make meanwhile on their
-// connections are served too.
+// takes no more connections and sends GOAWAY, so the clients send new calls
+// elsewhere, lets the calls in flight finish, and waits for the clients to
+// close their connections, at most the timeout of GracefulStopTimeout.
 func (s *Server) GracefulStop() {
 	ctx, cancel := context.WithTimeout(context.Background(), s.stopTimeout)
 	defer cancel()
