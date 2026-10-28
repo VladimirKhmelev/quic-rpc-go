@@ -17,13 +17,16 @@ import (
 
 // clientStream is the client side of one call over one transport stream.
 type clientStream struct {
-	cc         *ClientConn
-	ctx        context.Context
-	desc       *StreamDesc
-	st         transport.Stream
-	recv       *call.ClientRecv
-	info       callInfo
-	stopCancel func() bool
+	cc *ClientConn
+	// conn is the connection the call is counted on until releaseConn.
+	conn         *connection
+	connReleased atomic.Bool
+	ctx          context.Context
+	desc         *StreamDesc
+	st           transport.Stream
+	recv         *call.ClientRecv
+	info         callInfo
+	stopCancel   func() bool
 
 	sendMu sync.Mutex // serializes SendMsg and CloseSend
 	wbuf   []byte
@@ -34,6 +37,8 @@ type clientStream struct {
 	recvMu     sync.Mutex
 	gotMessage bool
 	finalErr   error // what RecvMsg returns once the call ended
+	// refused is set when the server refused the call unprocessed.
+	refused bool
 
 	ended       atomic.Bool
 	headerOnce  sync.Once
@@ -141,6 +146,12 @@ func (cs *clientStream) statusFor(err error) *status.Status {
 	if _, ok := errors.AsType[*transport.ConnError](err); ok && cs.cc.isClosed() {
 		return status.Convert(errClientConnClosing)
 	}
+	// The server refuses calls only once it is going away, possibly before
+	// its GOAWAY has arrived: no new call goes on this connection.
+	if se, ok := errors.AsType[*transport.StreamError](err); ok && se.Remote && se.Code == transport.Refused {
+		cs.refused = true
+		cs.cc.goAway(cs.conn)
+	}
 	// The server resets a call whose deadline expired, possibly before our
 	// own context noticed the same deadline; grpc-go does the same
 	// (internal/transport/http2_client.go).
@@ -178,6 +189,15 @@ func (cs *clientStream) finish(st *status.Status) {
 	}
 	if cs.info.trailer != nil {
 		*cs.info.trailer = trailer
+	}
+	cs.releaseConn()
+}
+
+// releaseConn counts the call out of its connection, once: when the call
+// ends or its context does, whichever comes first.
+func (cs *clientStream) releaseConn() {
+	if !cs.connReleased.Swap(true) {
+		cs.cc.release(cs.conn)
 	}
 }
 
