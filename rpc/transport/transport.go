@@ -24,6 +24,7 @@ const (
 	Cancelled     ErrorCode = 0x01
 	ProtocolError ErrorCode = 0x02
 	InternalError ErrorCode = 0x03
+	Refused       ErrorCode = 0x04
 )
 
 func (c ErrorCode) String() string {
@@ -36,54 +37,71 @@ func (c ErrorCode) String() string {
 		return "PROTOCOL_ERROR"
 	case InternalError:
 		return "INTERNAL_ERROR"
+	case Refused:
+		return "REFUSED"
 	default:
 		return fmt.Sprintf("ErrorCode(%#x)", uint64(c))
 	}
 }
 
-// Stream is one bidirectional stream. Read and Write may be called
-// concurrently with each other and with the other methods, but Read must not
-// be called concurrently with Read, nor Write with Write.
-type Stream interface {
+// ReceiveStream is the receive direction of a stream. Read must not be
+// called concurrently with Read.
+type ReceiveStream interface {
 	// Read reads data sent by the peer. It returns io.EOF after the peer
 	// closed its send direction and all data has been read, a *StreamError
 	// after a reset, and a *ConnError after the connection closed.
 	io.Reader
+	// CancelRead aborts the receive direction and asks the peer to stop
+	// sending; the peer's Write fails with a remote *StreamError carrying code.
+	CancelRead(code ErrorCode)
+}
+
+// SendStream is the send direction of a stream. Write must not be called
+// concurrently with Write.
+type SendStream interface {
 	// Write blocks while the peer has no room for more data (flow control).
 	// It returns a *StreamError after a reset and a *ConnError after the
 	// connection closed. Write after Close returns a non-nil error.
 	io.Writer
-	// Close closes the send direction (FIN). Reading is not affected.
+	// Close closes the send direction (FIN).
 	Close() error
 	// CancelWrite aborts the send direction; unsent data is discarded and
 	// the peer's Read fails with a remote *StreamError carrying code.
 	CancelWrite(code ErrorCode)
-	// CancelRead aborts the receive direction and asks the peer to stop
-	// sending; the peer's Write fails with a remote *StreamError carrying code.
-	CancelRead(code ErrorCode)
 	// Context is canceled once the send direction is done. Its cause is
 	// ErrStreamClosed after Close, a *StreamError after CancelWrite or the
 	// peer's CancelRead, and a *ConnError after the connection closed.
 	Context() context.Context
 }
 
-// Conn is a connection that multiplexes streams. Streams are opened by the
-// client side only.
+// Stream is one bidirectional stream. Its two directions are independent:
+// Read and Write may be called concurrently with each other and with the
+// other methods, and closing or canceling one direction leaves the other
+// as it is.
+type Stream interface {
+	ReceiveStream
+	SendStream
+}
+
+// Conn is a connection that multiplexes streams. Bidirectional streams are
+// opened by the client side only, unidirectional ones by the server side
+// only, and the client takes one unidirectional stream at a time.
 type Conn interface {
 	// OpenStream opens a stream, waiting while the peer's limit on
 	// concurrent streams is reached.
 	OpenStream(ctx context.Context) (Stream, error)
 	// AcceptStream waits for the next stream opened by the peer.
 	AcceptStream(ctx context.Context) (Stream, error)
+	// OpenUniStream opens a unidirectional stream, waiting while the peer
+	// has one open.
+	OpenUniStream(ctx context.Context) (SendStream, error)
+	// AcceptUniStream waits for the next unidirectional stream opened by
+	// the peer.
+	AcceptUniStream(ctx context.Context) (ReceiveStream, error)
 	// CloseWithError closes the connection; the peer sees code and reason
 	// in a remote *ConnError. It discards what the peer has not read yet:
 	// the peer's reads fail even on data that has arrived.
 	CloseWithError(code ErrorCode, reason string) error
-	// Drain waits until the peer has read what was written on the
-	// connection so far, as far as the transport can tell, so that
-	// CloseWithError loses nothing. It returns at once on a closed
-	// connection and returns ctx's error if ctx ends first.
-	Drain(ctx context.Context) error
 	// Context is canceled when the connection closes; its cause is a
 	// *ConnError. It is canceled before CloseWithError returns and before
 	// any method of the connection or of its streams returns a *ConnError,
