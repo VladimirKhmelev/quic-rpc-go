@@ -26,7 +26,8 @@ const (
 
 type Request struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// How the server answers. In Bidi only the first request's scenario counts.
+	// How the server answers. In Bidi and ClientStream only the first
+	// request's scenario counts.
 	Scenario      *Scenario `protobuf:"bytes,1,opt,name=scenario,proto3" json:"scenario,omitempty"`
 	Seq           int32     `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
 	Payload       []byte    `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
@@ -156,9 +157,13 @@ type Scenario struct {
 	// Bidi: answer every request with its seq and payload until the client's
 	// FIN, then end with the status.
 	Echo bool `protobuf:"varint,8,opt,name=echo,proto3" json:"echo,omitempty"`
-	// Bidi without echo: read the requests up to the client's FIN first.
+	// Bidi without echo and ClientStream: read the requests up to the
+	// client's FIN first. Otherwise ClientStream answers after the first
+	// request.
 	ReadAllFirst bool `protobuf:"varint,9,opt,name=read_all_first,json=readAllFirst,proto3" json:"read_all_first,omitempty"`
-	// Bidi without echo: how many responses to send before the status.
+	// Bidi without echo, ServerStream and ClientStream: how many responses to
+	// send before the status. ClientStream must send exactly one; other
+	// numbers test how the client takes a broken rule.
 	Responses int32 `protobuf:"varint,10,opt,name=responses,proto3" json:"responses,omitempty"`
 	// Size of the payload of each response; 0 echoes the request's payload in
 	// Unary.
@@ -411,10 +416,12 @@ const file_difftest_v1_difftest_proto_rawDesc = "" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"2\n" +
 	"\bMetadata\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value2y\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value2\xf7\x01\n" +
 	"\bDiffTest\x124\n" +
 	"\x05Unary\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response\x127\n" +
-	"\x04Bidi\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response(\x010\x01BLZJgithub.com/VladimirKhmelev/quic-rpc-go/internal/gen/difftest/v1;difftestv1b\x06proto3"
+	"\x04Bidi\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response(\x010\x01\x12=\n" +
+	"\fServerStream\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response0\x01\x12=\n" +
+	"\fClientStream\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response(\x01BLZJgithub.com/VladimirKhmelev/quic-rpc-go/internal/gen/difftest/v1;difftestv1b\x06proto3"
 
 var (
 	file_difftest_v1_difftest_proto_rawDescOnce sync.Once
@@ -443,10 +450,14 @@ var file_difftest_v1_difftest_proto_depIdxs = []int32{
 	4, // 3: difftest.v1.Scenario.trailer:type_name -> difftest.v1.Metadata
 	0, // 4: difftest.v1.DiffTest.Unary:input_type -> difftest.v1.Request
 	0, // 5: difftest.v1.DiffTest.Bidi:input_type -> difftest.v1.Request
-	1, // 6: difftest.v1.DiffTest.Unary:output_type -> difftest.v1.Response
-	1, // 7: difftest.v1.DiffTest.Bidi:output_type -> difftest.v1.Response
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
+	0, // 6: difftest.v1.DiffTest.ServerStream:input_type -> difftest.v1.Request
+	0, // 7: difftest.v1.DiffTest.ClientStream:input_type -> difftest.v1.Request
+	1, // 8: difftest.v1.DiffTest.Unary:output_type -> difftest.v1.Response
+	1, // 9: difftest.v1.DiffTest.Bidi:output_type -> difftest.v1.Response
+	1, // 10: difftest.v1.DiffTest.ServerStream:output_type -> difftest.v1.Response
+	1, // 11: difftest.v1.DiffTest.ClientStream:output_type -> difftest.v1.Response
+	8, // [8:12] is the sub-list for method output_type
+	4, // [4:8] is the sub-list for method input_type
 	4, // [4:4] is the sub-list for extension type_name
 	4, // [4:4] is the sub-list for extension extendee
 	0, // [0:4] is the sub-list for field type_name

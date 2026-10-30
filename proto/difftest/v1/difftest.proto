@@ -12,10 +12,16 @@ service DiffTest {
   rpc Unary(Request) returns (Response);
   // Bidi takes the scenario from its first request.
   rpc Bidi(stream Request) returns (stream Response);
+  // ServerStream answers its request with the responses of the scenario.
+  rpc ServerStream(Request) returns (stream Response);
+  // ClientStream takes the scenario from its first request and answers with
+  // the number of requests it read as the seq of its response.
+  rpc ClientStream(stream Request) returns (Response);
 }
 
 message Request {
-  // How the server answers. In Bidi only the first request's scenario counts.
+  // How the server answers. In Bidi and ClientStream only the first
+  // request's scenario counts.
   Scenario scenario = 1;
   int32 seq = 2;
   bytes payload = 3;
@@ -44,9 +50,13 @@ message Scenario {
   // Bidi: answer every request with its seq and payload until the client's
   // FIN, then end with the status.
   bool echo = 8;
-  // Bidi without echo: read the requests up to the client's FIN first.
+  // Bidi without echo and ClientStream: read the requests up to the
+  // client's FIN first. Otherwise ClientStream answers after the first
+  // request.
   bool read_all_first = 9;
-  // Bidi without echo: how many responses to send before the status.
+  // Bidi without echo, ServerStream and ClientStream: how many responses to
+  // send before the status. ClientStream must send exactly one; other
+  // numbers test how the client takes a broken rule.
   int32 responses = 10;
   // Size of the payload of each response; 0 echoes the request's payload in
   // Unary.

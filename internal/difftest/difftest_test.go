@@ -64,6 +64,14 @@ type client interface {
 	unary(ctx context.Context, md map[string][]string, req *difftestv1.Request) outcome
 	invoke(ctx context.Context, method string) outcome
 	bidi(ctx context.Context, mode bidiMode, reqs []*difftestv1.Request) outcome
+	serverStream(ctx context.Context, md map[string][]string, req *difftestv1.Request) outcome
+	// clientStream sends reqs, stopping once the server ended the call, and
+	// then closes and receives.
+	clientStream(ctx context.Context, reqs []*difftestv1.Request) outcome
+	// raw calls method as a bidirectional stream whatever its kind: it sends
+	// reqs, closes and receives up to the end, so that it can break the
+	// rules of the method's kind.
+	raw(ctx context.Context, method string, reqs []*difftestv1.Request) outcome
 }
 
 // clientStream is the client side of Bidi on both stacks.
@@ -104,6 +112,28 @@ func drive(s clientStream, mode bidiMode, reqs []*difftestv1.Request) ([]respons
 			return out, err
 		}
 		out = append(out, response{resp.GetSeq(), resp.GetPayload()})
+	}
+}
+
+// recvAll receives up to the end of a call.
+func recvAll(recv func() (*difftestv1.Response, error)) ([]response, error) {
+	var out []response
+	for {
+		resp, err := recv()
+		if err != nil {
+			return out, err
+		}
+		out = append(out, response{resp.GetSeq(), resp.GetPayload()})
+	}
+}
+
+// sendAllReqs sends reqs until a send fails: the call is over, and the
+// receive reports why.
+func sendAllReqs(send func(any) error, reqs []*difftestv1.Request) {
+	for _, r := range reqs {
+		if send(r) != nil {
+			return
+		}
 	}
 }
 
@@ -172,6 +202,51 @@ func (g grpcClient) bidi(ctx context.Context, mode bidiMode, reqs []*difftestv1.
 	return o
 }
 
+func (g grpcClient) serverStream(ctx context.Context, md map[string][]string, req *difftestv1.Request) outcome {
+	stream, err := g.c.ServerStream(grpcmetadata.NewOutgoingContext(ctx, md), req)
+	if err != nil {
+		return grpcOutcome(err)
+	}
+	responses, err := recvAll(stream.Recv)
+	o := grpcOutcome(err)
+	header, _ := stream.Header()
+	o.Header, o.Trailer, o.Responses = onlyX(header), onlyX(stream.Trailer()), responses
+	return o
+}
+
+func (g grpcClient) clientStream(ctx context.Context, reqs []*difftestv1.Request) outcome {
+	stream, err := g.c.ClientStream(ctx)
+	if err != nil {
+		return grpcOutcome(err)
+	}
+	sendAllReqs(stream.SendMsg, reqs)
+	resp, err := stream.CloseAndRecv()
+	o := grpcOutcome(err)
+	header, _ := stream.Header()
+	o.Header, o.Trailer = onlyX(header), onlyX(stream.Trailer())
+	if err == nil {
+		o.Responses = []response{{resp.GetSeq(), resp.GetPayload()}}
+	}
+	return o
+}
+
+func (g grpcClient) raw(ctx context.Context, method string, reqs []*difftestv1.Request) outcome {
+	stream, err := g.conn.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true, ClientStreams: true}, method)
+	if err != nil {
+		return grpcOutcome(err)
+	}
+	sendAllReqs(stream.SendMsg, reqs)
+	_ = stream.CloseSend()
+	responses, err := recvAll(func() (*difftestv1.Response, error) {
+		resp := new(difftestv1.Response)
+		return resp, stream.RecvMsg(resp)
+	})
+	o := grpcOutcome(err)
+	header, _ := stream.Header()
+	o.Header, o.Trailer, o.Responses = onlyX(header), onlyX(stream.Trailer()), responses
+	return o
+}
+
 type quicClient struct {
 	cc *rpc.ClientConn
 	c  difftestv1quic.DiffTestClient
@@ -207,6 +282,51 @@ func (q quicClient) bidi(ctx context.Context, mode bidiMode, reqs []*difftestv1.
 		return quicOutcome(err)
 	}
 	responses, err := drive(stream, mode, reqs)
+	o := quicOutcome(err)
+	header, _ := stream.Header()
+	o.Header, o.Trailer, o.Responses = onlyX(header), onlyX(stream.Trailer()), responses
+	return o
+}
+
+func (q quicClient) serverStream(ctx context.Context, md map[string][]string, req *difftestv1.Request) outcome {
+	stream, err := q.c.ServerStream(metadata.NewOutgoingContext(ctx, md), req)
+	if err != nil {
+		return quicOutcome(err)
+	}
+	responses, err := recvAll(stream.Recv)
+	o := quicOutcome(err)
+	header, _ := stream.Header()
+	o.Header, o.Trailer, o.Responses = onlyX(header), onlyX(stream.Trailer()), responses
+	return o
+}
+
+func (q quicClient) clientStream(ctx context.Context, reqs []*difftestv1.Request) outcome {
+	stream, err := q.c.ClientStream(ctx)
+	if err != nil {
+		return quicOutcome(err)
+	}
+	sendAllReqs(stream.SendMsg, reqs)
+	resp, err := stream.CloseAndRecv()
+	o := quicOutcome(err)
+	header, _ := stream.Header()
+	o.Header, o.Trailer = onlyX(header), onlyX(stream.Trailer())
+	if err == nil {
+		o.Responses = []response{{resp.GetSeq(), resp.GetPayload()}}
+	}
+	return o
+}
+
+func (q quicClient) raw(ctx context.Context, method string, reqs []*difftestv1.Request) outcome {
+	stream, err := q.cc.NewStream(ctx, &rpc.StreamDesc{ServerStreams: true, ClientStreams: true}, method)
+	if err != nil {
+		return quicOutcome(err)
+	}
+	sendAllReqs(stream.SendMsg, reqs)
+	_ = stream.CloseSend()
+	responses, err := recvAll(func() (*difftestv1.Response, error) {
+		resp := new(difftestv1.Response)
+		return resp, stream.RecvMsg(resp)
+	})
 	o := quicOutcome(err)
 	header, _ := stream.Header()
 	o.Header, o.Trailer, o.Responses = onlyX(header), onlyX(stream.Trailer()), responses
