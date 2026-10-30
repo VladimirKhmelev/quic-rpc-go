@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"testing"
 	"time"
 
@@ -73,5 +74,40 @@ func TestSmoke(t *testing.T) {
 	}
 	if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
 		t.Fatalf("final Recv: %v, want io.EOF", err)
+	}
+}
+
+// TestSmokeInterceptors: the generated handlers run the server's unary
+// interceptors with the request decoded and the method's full name, and the
+// generated client goes through the client's.
+func TestSmokeInterceptors(t *testing.T) {
+	var onServer, onClient []string
+	l := mem.Listen(mem.Options{})
+	srv := rpc.NewServer(rpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *rpc.UnaryServerInfo, handler rpc.UnaryHandler) (any, error) {
+		onServer = append(onServer, info.FullMethod)
+		if _, ok := info.Server.(server); !ok {
+			t.Errorf("info.Server is %T", info.Server)
+		}
+		req.(*difftestv1.Request).Seq++
+		return handler(ctx, req)
+	}))
+	difftestv1quic.RegisterDiffTestServer(srv, server{})
+	go func() { _ = srv.Serve(l) }()
+	t.Cleanup(srv.Stop)
+	cc := rpc.NewClient(l, rpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *rpc.ClientConn, invoker rpc.UnaryInvoker, opts ...rpc.CallOption) error {
+		onClient = append(onClient, method)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}))
+	t.Cleanup(func() { _ = cc.Close() })
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	resp, err := difftestv1quic.NewDiffTestClient(cc).Unary(ctx, &difftestv1.Request{Seq: 7})
+	if err != nil || resp.GetSeq() != 8 {
+		t.Fatalf("Unary: %v, %v; want seq 8", resp, err)
+	}
+	want := []string{difftestv1quic.DiffTest_Unary_FullMethodName}
+	if !slices.Equal(onServer, want) || !slices.Equal(onClient, want) {
+		t.Errorf("interceptors saw %q on the server, %q on the client", onServer, onClient)
 	}
 }
