@@ -16,8 +16,12 @@ message Msg {
 service Echo {
   // Unary echoes one message.
   rpc Unary(Msg) returns (Msg);
+  // Split sends the text back a letter per message.
+  rpc Split(Msg) returns (stream Msg);
   // Bidi echoes every message of the stream.
   rpc Bidi(stream Msg) returns (stream Msg);
+  // Join answers with the texts of the stream joined.
+  rpc Join(stream Msg) returns (Msg);
   // Old is kept for older clients.
   rpc Old(Msg) returns (Msg) {
     option deprecated = true;

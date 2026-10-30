@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -112,28 +113,24 @@ func TestPackageSuffixOption(t *testing.T) {
 	}
 }
 
-func TestUnsupportedStreaming(t *testing.T) {
-	tests := []struct {
-		kind           string
-		client, server bool
-	}{
-		{"server-streaming", false, true},
-		{"client-streaming", true, false},
+// TestStreamIndices: a streaming client opens its stream with the entry
+// of its method in ServiceDesc.Streams; methods of every streaming kind
+// take the next entry, in the order of the .proto.
+func TestStreamIndices(t *testing.T) {
+	content := generateOne(t, "paths=source_relative", "echo/v1/echov1quic/echo.rpcquic.go", "echov1quic")
+	for i, name := range []string{"Split", "Bidi", "Join"} {
+		call := fmt.Sprintf("Echo_ServiceDesc.Streams[%d], Echo_%s_FullMethodName", i, name)
+		if !strings.Contains(content, call) {
+			t.Errorf("the client of %s does not open Streams[%d]", name, i)
+		}
 	}
-	for _, tt := range tests {
-		t.Run(tt.kind, func(t *testing.T) {
-			resp := generate(t, request(t, "paths=source_relative", func(f *descriptorpb.FileDescriptorProto) {
-				m := f.Service[0].Method[1] // Echo.Bidi
-				m.ClientStreaming, m.ServerStreaming = proto.Bool(tt.client), proto.Bool(tt.server)
-			}))
-			msg := resp.GetError()
-			if !strings.Contains(msg, "test.echo.v1.Echo.Bidi is a "+tt.kind+" method") {
-				t.Fatalf("error %q, want one naming Echo.Bidi as %s", msg, tt.kind)
-			}
-			if len(resp.File) != 0 {
-				t.Fatalf("generated %v despite the error", names(resp))
-			}
-		})
+	_, desc, ok := strings.Cut(content, "var Echo_ServiceDesc")
+	if !ok {
+		t.Fatal("no Echo_ServiceDesc")
+	}
+	split, bidi, join := strings.Index(desc, `"Split"`), strings.Index(desc, `"Bidi"`), strings.Index(desc, `"Join"`)
+	if split < 0 || split > bidi || bidi > join {
+		t.Errorf("Echo_ServiceDesc.Streams is not in the order Split, Bidi, Join:\n%s", desc)
 	}
 }
 

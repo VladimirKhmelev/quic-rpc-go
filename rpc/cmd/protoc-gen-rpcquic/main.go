@@ -11,7 +11,8 @@
 // generated from one .proto and switching transports is a change of import.
 // An empty package_suffix generates into the package of the messages.
 //
-// For now only unary and bidirectional streaming methods are supported.
+// Methods of all four kinds are supported: unary, server-streaming,
+// client-streaming and bidirectional.
 package main
 
 import (
