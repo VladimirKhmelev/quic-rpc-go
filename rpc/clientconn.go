@@ -32,6 +32,9 @@ var errClientConnClosing = status.Error(codes.Canceled, "client connection is cl
 // It is safe for concurrent use.
 type ClientConn struct {
 	dialer transport.Dialer
+	// unaryInt and streamInt are the chains of interceptors, nil if empty.
+	unaryInt  UnaryClientInterceptor
+	streamInt StreamClientInterceptor
 
 	mu sync.Mutex
 	// conn takes new calls; nil before the first dial and after GOAWAY.
@@ -56,9 +59,19 @@ type connection struct {
 
 var _ ClientConnInterface = (*ClientConn)(nil)
 
-// NewClient returns a ClientConn that dials with d. It does not dial yet.
-func NewClient(d transport.Dialer) *ClientConn {
-	return &ClientConn{dialer: d, conns: map[*connection]struct{}{}}
+// NewClient returns a ClientConn that dials with d; opts add interceptors.
+// It does not dial yet.
+func NewClient(d transport.Dialer, opts ...DialOption) *ClientConn {
+	var o dialOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return &ClientConn{
+		dialer:    d,
+		unaryInt:  chainUnaryClient(o.unary),
+		streamInt: chainStreamClient(o.stream),
+		conns:     map[*connection]struct{}{},
+	}
 }
 
 // Close closes the connections. Calls in flight and later calls fail with
@@ -201,12 +214,20 @@ func (cc *ClientConn) watch(c *connection) {
 
 var unaryStreamDesc = StreamDesc{}
 
-// Invoke performs a unary call: it sends args and receives the response
-// into reply.
+// Invoke performs a unary call through the interceptors: it sends args and
+// receives the response into reply.
 func (cc *ClientConn) Invoke(ctx context.Context, method string, args, reply any, opts ...CallOption) error {
-	// A call the server refused was not processed; it goes out once more,
-	// on a new connection, as grpc-go retries a stream refused with
-	// REFUSED_STREAM transparently (shouldRetry in stream.go).
+	if cc.unaryInt != nil {
+		return cc.unaryInt(ctx, method, args, reply, cc, invoke, opts...)
+	}
+	return invoke(ctx, method, args, reply, cc, opts...)
+}
+
+// invoke performs a unary call after the interceptors. A call the server
+// refused was not processed; it goes out once more, on a new connection, as
+// grpc-go retries a stream refused with REFUSED_STREAM transparently
+// (shouldRetry in stream.go). The interceptors see one call either way.
+func invoke(ctx context.Context, method string, args, reply any, cc *ClientConn, opts ...CallOption) error {
 	for retried := false; ; retried = true {
 		cs, err := cc.newStream(ctx, &unaryStreamDesc, method, opts, args, true)
 		if err != nil {
@@ -218,8 +239,17 @@ func (cc *ClientConn) Invoke(ctx context.Context, method string, args, reply any
 	}
 }
 
-// NewStream starts a streaming call described by desc.
+// NewStream starts a streaming call described by desc, through the
+// interceptors.
 func (cc *ClientConn) NewStream(ctx context.Context, desc *StreamDesc, method string, opts ...CallOption) (ClientStream, error) {
+	if cc.streamInt != nil {
+		return cc.streamInt(ctx, desc, cc, method, newClientStream, opts...)
+	}
+	return newClientStream(ctx, desc, cc, method, opts...)
+}
+
+// newClientStream starts a streaming call after the interceptors.
+func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, method string, opts ...CallOption) (ClientStream, error) {
 	cs, err := cc.newStream(ctx, desc, method, opts, nil, false)
 	if err != nil {
 		return nil, err
