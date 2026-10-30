@@ -18,27 +18,47 @@ import (
 // services: an interface, handlers and a ServiceDesc.
 
 type (
-	msg        = wrapperspb.StringValue
-	bidiServer = rpc.BidiStreamingServer[msg, msg]
+	msg                = wrapperspb.StringValue
+	bidiServer         = rpc.BidiStreamingServer[msg, msg]
+	serverStreamServer = rpc.ServerStreamingServer[msg]
+	clientStreamServer = rpc.ClientStreamingServer[msg, msg]
 )
 
 type echoService interface {
 	Unary(context.Context, *msg) (*msg, error)
 	Bidi(bidiServer) error
+	ServerStream(*msg, serverStreamServer) error
+	ClientStream(clientStreamServer) error
 }
 
-const unaryMethod = "/test.v1.Echo/Unary"
+const (
+	unaryMethod        = "/test.v1.Echo/Unary"
+	serverStreamMethod = "/test.v1.Echo/ServerStream"
+	clientStreamMethod = "/test.v1.Echo/ClientStream"
+)
 
 var echoDesc = rpc.ServiceDesc{
 	ServiceName: "test.v1.Echo",
 	HandlerType: (*echoService)(nil),
 	Methods:     []rpc.MethodDesc{{MethodName: "Unary", Handler: unaryHandler}},
-	Streams: []rpc.StreamDesc{{
-		StreamName:    "Bidi",
-		Handler:       bidiHandler,
-		ServerStreams: true,
-		ClientStreams: true,
-	}},
+	Streams: []rpc.StreamDesc{
+		{
+			StreamName:    "Bidi",
+			Handler:       bidiHandler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ServerStream",
+			Handler:       serverStreamHandler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ClientStream",
+			Handler:       clientStreamHandler,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "test.proto",
 }
 
@@ -61,10 +81,26 @@ func bidiHandler(srv any, stream rpc.ServerStream) error {
 	return srv.(echoService).Bidi(&rpc.GenericServerStream[msg, msg]{ServerStream: stream})
 }
 
-// testServer echoes by default; tests replace the behavior they need.
+func serverStreamHandler(srv any, stream rpc.ServerStream) error {
+	in := new(msg)
+	if err := stream.RecvMsg(in); err != nil {
+		return err
+	}
+	return srv.(echoService).ServerStream(in, &rpc.GenericServerStream[msg, msg]{ServerStream: stream})
+}
+
+func clientStreamHandler(srv any, stream rpc.ServerStream) error {
+	return srv.(echoService).ClientStream(&rpc.GenericServerStream[msg, msg]{ServerStream: stream})
+}
+
+// testServer echoes by default; tests replace the behavior they need. A
+// server stream answers with the letters of the request, one per message;
+// a client stream answers with its requests joined.
 type testServer struct {
-	unary func(context.Context, *msg) (*msg, error)
-	bidi  func(bidiServer) error
+	unary        func(context.Context, *msg) (*msg, error)
+	bidi         func(bidiServer) error
+	serverStream func(*msg, serverStreamServer) error
+	clientStream func(clientStreamServer) error
 }
 
 func (s *testServer) Unary(ctx context.Context, in *msg) (*msg, error) {
@@ -79,6 +115,35 @@ func (s *testServer) Bidi(stream bidiServer) error {
 		return echoAll(stream)
 	}
 	return s.bidi(stream)
+}
+
+func (s *testServer) ServerStream(in *msg, stream serverStreamServer) error {
+	if s.serverStream != nil {
+		return s.serverStream(in, stream)
+	}
+	for _, r := range in.GetValue() {
+		if err := stream.Send(wrapperspb.String(string(r))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *testServer) ClientStream(stream clientStreamServer) error {
+	if s.clientStream != nil {
+		return s.clientStream(stream)
+	}
+	var all string
+	for {
+		in, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return stream.SendAndClose(wrapperspb.String(all))
+		}
+		if err != nil {
+			return err
+		}
+		all += in.GetValue()
+	}
 }
 
 func echoAll(stream bidiServer) error {

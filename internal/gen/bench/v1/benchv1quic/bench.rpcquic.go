@@ -58,7 +58,8 @@ func (c *benchClient) Echo(ctx context.Context, opts ...rpc.CallOption) (rpc.Bid
 	if err != nil {
 		return nil, err
 	}
-	return &rpc.GenericClientStream[v1.EchoMessage, v1.EchoMessage]{ClientStream: stream}, nil
+	x := &rpc.GenericClientStream[v1.EchoMessage, v1.EchoMessage]{ClientStream: stream}
+	return x, nil
 }
 
 // Bench_EchoClient is the client stream of Bench.Echo,

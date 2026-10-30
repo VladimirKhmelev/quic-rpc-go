@@ -50,6 +50,42 @@ type ServerStream interface {
 	RecvMsg(m any) error
 }
 
+// The typed stream interfaces below are those of grpc-go, one pair per kind
+// of streaming call; generated code uses them.
+
+// ServerStreamingClient is the typed client side of a server-streaming
+// call: the request went out when the call started.
+type ServerStreamingClient[Res any] interface {
+	Recv() (*Res, error)
+	ClientStream
+}
+
+// ServerStreamingServer is the typed server side of a server-streaming
+// call: the handler got the request as an argument.
+type ServerStreamingServer[Res any] interface {
+	Send(*Res) error
+	ServerStream
+}
+
+// ClientStreamingClient is the typed client side of a client-streaming
+// call.
+type ClientStreamingClient[Req any, Res any] interface {
+	Send(*Req) error
+	// CloseAndRecv closes the sending direction and receives the response.
+	CloseAndRecv() (*Res, error)
+	ClientStream
+}
+
+// ClientStreamingServer is the typed server side of a client-streaming
+// call.
+type ClientStreamingServer[Req any, Res any] interface {
+	Recv() (*Req, error)
+	// SendAndClose sends the response; the call ends when the handler
+	// returns.
+	SendAndClose(*Res) error
+	ServerStream
+}
+
 // BidiStreamingClient is the typed client side of a bidirectional call.
 type BidiStreamingClient[Req any, Res any] interface {
 	Send(*Req) error
@@ -70,6 +106,15 @@ type GenericClientStream[Req any, Res any] struct {
 	ClientStream
 }
 
+var (
+	_ ServerStreamingClient[int]      = (*GenericClientStream[int, int])(nil)
+	_ ClientStreamingClient[int, int] = (*GenericClientStream[int, int])(nil)
+	_ BidiStreamingClient[int, int]   = (*GenericClientStream[int, int])(nil)
+	_ ServerStreamingServer[int]      = (*GenericServerStream[int, int])(nil)
+	_ ClientStreamingServer[int, int] = (*GenericServerStream[int, int])(nil)
+	_ BidiStreamingServer[int, int]   = (*GenericServerStream[int, int])(nil)
+)
+
 // Send sends a request message.
 func (x *GenericClientStream[Req, Res]) Send(m *Req) error {
 	return x.SendMsg(m)
@@ -77,6 +122,19 @@ func (x *GenericClientStream[Req, Res]) Send(m *Req) error {
 
 // Recv receives a response message.
 func (x *GenericClientStream[Req, Res]) Recv() (*Res, error) {
+	m := new(Res)
+	if err := x.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// CloseAndRecv closes the sending direction and receives the only response
+// of a client-streaming call.
+func (x *GenericClientStream[Req, Res]) CloseAndRecv() (*Res, error) {
+	if err := x.CloseSend(); err != nil {
+		return nil, err
+	}
 	m := new(Res)
 	if err := x.RecvMsg(m); err != nil {
 		return nil, err
@@ -101,5 +159,11 @@ func (x *GenericServerStream[Req, Res]) Recv() (*Req, error) {
 
 // Send sends a response message.
 func (x *GenericServerStream[Req, Res]) Send(m *Res) error {
+	return x.SendMsg(m)
+}
+
+// SendAndClose sends the only response of a client-streaming call; the call
+// ends when the handler returns.
+func (x *GenericServerStream[Req, Res]) SendAndClose(m *Res) error {
 	return x.SendMsg(m)
 }

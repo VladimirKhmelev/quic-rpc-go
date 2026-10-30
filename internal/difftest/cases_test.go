@@ -51,6 +51,36 @@ func bidiCall(sc *difftestv1.Scenario, mode bidiMode, n int) func(context.Contex
 	}
 }
 
+func serverStreamCall(sc *difftestv1.Scenario, md map[string][]string) func(context.Context, client) outcome {
+	return func(ctx context.Context, c client) outcome {
+		return c.serverStream(ctx, md, &difftestv1.Request{Scenario: sc, Payload: []byte("ping")})
+	}
+}
+
+// clientStreamCall sends n requests; the first one carries the scenario.
+func clientStreamCall(sc *difftestv1.Scenario, n int) func(context.Context, client) outcome {
+	return func(ctx context.Context, c client) outcome { return c.clientStream(ctx, requests(sc, n)) }
+}
+
+// rawCall calls method of DiffTest as a bidirectional stream with n
+// requests.
+func rawCall(method string, sc *difftestv1.Scenario, n int) func(context.Context, client) outcome {
+	return func(ctx context.Context, c client) outcome {
+		return c.raw(ctx, "/difftest.v1.DiffTest/"+method, requests(sc, n))
+	}
+}
+
+func requests(sc *difftestv1.Scenario, n int) []*difftestv1.Request {
+	reqs := make([]*difftestv1.Request, n)
+	for i := range reqs {
+		reqs[i] = &difftestv1.Request{Seq: int32(i)}
+	}
+	if n > 0 {
+		reqs[0].Scenario = sc
+	}
+	return reqs
+}
+
 func md(kv ...string) []*difftestv1.Metadata {
 	var out []*difftestv1.Metadata
 	for i := 0; i < len(kv); i += 2 {
@@ -193,6 +223,103 @@ func cases() []testCase {
 		call:        bidiCall(&difftestv1.Scenario{WaitForCancel: true}, sendFirst, 1),
 		cancelAfter: 100 * time.Millisecond,
 		wantCode:    codes.Canceled,
+	})
+
+	add(testCase{name: "server-stream/ok", call: serverStreamCall(&difftestv1.Scenario{Responses: 3}, nil), wantResponses: 3})
+	add(testCase{name: "server-stream/none", call: serverStreamCall(&difftestv1.Scenario{}, nil)})
+	add(testCase{
+		name:          "server-stream/error-after-responses",
+		call:          serverStreamCall(&difftestv1.Scenario{Responses: 2, Code: uint32(codes.Aborted), Message: "stop"}, nil),
+		wantCode:      codes.Aborted,
+		wantResponses: 2,
+	})
+	add(testCase{
+		name: "server-stream/trailers-only",
+		call: serverStreamCall(&difftestv1.Scenario{
+			Code:    uint32(codes.PermissionDenied),
+			Message: "no access",
+			Details: []*difftestv1.Detail{{Text: "ask an admin"}},
+		}, nil),
+		wantCode: codes.PermissionDenied,
+	})
+	add(testCase{
+		name: "server-stream/metadata",
+		call: serverStreamCall(&difftestv1.Scenario{
+			SendHeaderFirst: true,
+			EchoMetadata:    true,
+			Header:          md("x-session", "s1"),
+			Trailer:         md("x-count", "2", "x-t-bin", "\x01\x02"),
+			Responses:       2,
+			PayloadSize:     16,
+		}, map[string][]string{"x-request-id": {"r1"}}),
+		wantResponses: 2,
+	})
+	add(testCase{
+		name:     "server-stream/deadline",
+		call:     serverStreamCall(&difftestv1.Scenario{WaitForCancel: true}, nil),
+		timeout:  100 * time.Millisecond,
+		wantCode: codes.DeadlineExceeded,
+		codeOnly: true, // see unary/deadline
+	})
+	add(testCase{
+		name:        "server-stream/cancel",
+		call:        serverStreamCall(&difftestv1.Scenario{WaitForCancel: true}, nil),
+		cancelAfter: 100 * time.Millisecond,
+		wantCode:    codes.Canceled,
+	})
+	// A server-streaming method takes exactly one request; the server's
+	// RecvMsg reports the broken rule, with the same words in both
+	// libraries.
+	add(testCase{name: "server-stream/two-requests", call: rawCall("ServerStream", &difftestv1.Scenario{Responses: 1}, 2), wantCode: codes.Internal})
+	add(testCase{name: "server-stream/no-request", call: rawCall("ServerStream", nil, 0), wantCode: codes.Internal})
+
+	add(testCase{
+		name:          "client-stream/ok",
+		call:          clientStreamCall(&difftestv1.Scenario{ReadAllFirst: true, Responses: 1}, 3),
+		wantResponses: 1,
+	})
+	add(testCase{name: "client-stream/no-requests", call: clientStreamCall(nil, 0), wantResponses: 1})
+	add(testCase{
+		name:          "client-stream/server-ends-first",
+		call:          clientStreamCall(&difftestv1.Scenario{Responses: 1, PayloadSize: 16}, 5),
+		wantResponses: 1,
+	})
+	add(testCase{
+		name:     "client-stream/error",
+		call:     clientStreamCall(&difftestv1.Scenario{ReadAllFirst: true, Code: uint32(codes.InvalidArgument), Message: "bad batch"}, 3),
+		wantCode: codes.InvalidArgument,
+	})
+	add(testCase{
+		name: "client-stream/metadata",
+		call: clientStreamCall(&difftestv1.Scenario{
+			ReadAllFirst:    true,
+			SendHeaderFirst: true,
+			Header:          md("x-session", "s1"),
+			Trailer:         md("x-count", "2"),
+			Responses:       1,
+		}, 2),
+		wantResponses: 1,
+	})
+	add(testCase{
+		name:     "client-stream/deadline",
+		call:     clientStreamCall(&difftestv1.Scenario{WaitForCancel: true}, 1),
+		timeout:  100 * time.Millisecond,
+		wantCode: codes.DeadlineExceeded,
+		codeOnly: true, // see unary/deadline
+	})
+	add(testCase{
+		name:        "client-stream/cancel",
+		call:        clientStreamCall(&difftestv1.Scenario{WaitForCancel: true}, 1),
+		cancelAfter: 100 * time.Millisecond,
+		wantCode:    codes.Canceled,
+	})
+	// A client-streaming method answers exactly once; the client reports a
+	// missing or an extra answer, with the same words in both libraries.
+	add(testCase{name: "client-stream/no-response", call: clientStreamCall(&difftestv1.Scenario{ReadAllFirst: true}, 1), wantCode: codes.Internal})
+	add(testCase{
+		name:     "client-stream/two-responses",
+		call:     clientStreamCall(&difftestv1.Scenario{ReadAllFirst: true, Responses: 2}, 1),
+		wantCode: codes.Internal,
 	})
 	return cs
 }

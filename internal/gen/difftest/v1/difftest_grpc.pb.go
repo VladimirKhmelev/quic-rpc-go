@@ -22,8 +22,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DiffTest_Unary_FullMethodName = "/difftest.v1.DiffTest/Unary"
-	DiffTest_Bidi_FullMethodName  = "/difftest.v1.DiffTest/Bidi"
+	DiffTest_Unary_FullMethodName        = "/difftest.v1.DiffTest/Unary"
+	DiffTest_Bidi_FullMethodName         = "/difftest.v1.DiffTest/Bidi"
+	DiffTest_ServerStream_FullMethodName = "/difftest.v1.DiffTest/ServerStream"
+	DiffTest_ClientStream_FullMethodName = "/difftest.v1.DiffTest/ClientStream"
 )
 
 // DiffTestClient is the client API for DiffTest service.
@@ -36,6 +38,11 @@ type DiffTestClient interface {
 	Unary(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
 	// Bidi takes the scenario from its first request.
 	Bidi(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Request, Response], error)
+	// ServerStream answers its request with the responses of the scenario.
+	ServerStream(ctx context.Context, in *Request, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Response], error)
+	// ClientStream takes the scenario from its first request and answers with
+	// the number of requests it read as the seq of its response.
+	ClientStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[Request, Response], error)
 }
 
 type diffTestClient struct {
@@ -69,6 +76,38 @@ func (c *diffTestClient) Bidi(ctx context.Context, opts ...grpc.CallOption) (grp
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DiffTest_BidiClient = grpc.BidiStreamingClient[Request, Response]
 
+func (c *diffTestClient) ServerStream(ctx context.Context, in *Request, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Response], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &DiffTest_ServiceDesc.Streams[1], DiffTest_ServerStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Request, Response]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DiffTest_ServerStreamClient = grpc.ServerStreamingClient[Response]
+
+func (c *diffTestClient) ClientStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[Request, Response], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &DiffTest_ServiceDesc.Streams[2], DiffTest_ClientStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Request, Response]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DiffTest_ClientStreamClient = grpc.ClientStreamingClient[Request, Response]
+
 // DiffTestServer is the server API for DiffTest service.
 // All implementations must embed UnimplementedDiffTestServer
 // for forward compatibility.
@@ -79,6 +118,11 @@ type DiffTestServer interface {
 	Unary(context.Context, *Request) (*Response, error)
 	// Bidi takes the scenario from its first request.
 	Bidi(grpc.BidiStreamingServer[Request, Response]) error
+	// ServerStream answers its request with the responses of the scenario.
+	ServerStream(*Request, grpc.ServerStreamingServer[Response]) error
+	// ClientStream takes the scenario from its first request and answers with
+	// the number of requests it read as the seq of its response.
+	ClientStream(grpc.ClientStreamingServer[Request, Response]) error
 	mustEmbedUnimplementedDiffTestServer()
 }
 
@@ -94,6 +138,12 @@ func (UnimplementedDiffTestServer) Unary(context.Context, *Request) (*Response, 
 }
 func (UnimplementedDiffTestServer) Bidi(grpc.BidiStreamingServer[Request, Response]) error {
 	return status.Error(codes.Unimplemented, "method Bidi not implemented")
+}
+func (UnimplementedDiffTestServer) ServerStream(*Request, grpc.ServerStreamingServer[Response]) error {
+	return status.Error(codes.Unimplemented, "method ServerStream not implemented")
+}
+func (UnimplementedDiffTestServer) ClientStream(grpc.ClientStreamingServer[Request, Response]) error {
+	return status.Error(codes.Unimplemented, "method ClientStream not implemented")
 }
 func (UnimplementedDiffTestServer) mustEmbedUnimplementedDiffTestServer() {}
 func (UnimplementedDiffTestServer) testEmbeddedByValue()                  {}
@@ -141,6 +191,24 @@ func _DiffTest_Bidi_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DiffTest_BidiServer = grpc.BidiStreamingServer[Request, Response]
 
+func _DiffTest_ServerStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Request)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DiffTestServer).ServerStream(m, &grpc.GenericServerStream[Request, Response]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DiffTest_ServerStreamServer = grpc.ServerStreamingServer[Response]
+
+func _DiffTest_ClientStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(DiffTestServer).ClientStream(&grpc.GenericServerStream[Request, Response]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DiffTest_ClientStreamServer = grpc.ClientStreamingServer[Request, Response]
+
 // DiffTest_ServiceDesc is the grpc.ServiceDesc for DiffTest service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -158,6 +226,16 @@ var DiffTest_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Bidi",
 			Handler:       _DiffTest_Bidi_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ServerStream",
+			Handler:       _DiffTest_ServerStream_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ClientStream",
+			Handler:       _DiffTest_ClientStream_Handler,
 			ClientStreams: true,
 		},
 	},

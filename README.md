@@ -53,7 +53,7 @@ protoc --go_out=. --go_opt=paths=source_relative \
        chat/v1/chat.proto
 ```
 
-Пока поддерживаются unary- и bidi-методы.
+Поддерживаются методы всех четырёх видов: unary, server-stream, client-stream и bidi.
 
 ## Документация
 
