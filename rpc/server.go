@@ -26,6 +26,9 @@ type Server struct {
 	// ctx is the parent of every handler's context; Stop cancels it.
 	ctx    context.Context
 	cancel context.CancelFunc
+	// unaryInt and streamInt are the chains of interceptors, nil if empty.
+	unaryInt  UnaryServerInterceptor
+	streamInt StreamServerInterceptor
 
 	mu        sync.Mutex
 	services  map[string]*serviceInfo
@@ -62,12 +65,18 @@ type serviceInfo struct {
 	streams map[string]*StreamDesc
 }
 
-// NewServer returns a server with no services.
-func NewServer() *Server {
+// NewServer returns a server with no services; opts add interceptors.
+func NewServer(opts ...ServerOption) *Server {
+	var o serverOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		ctx:       ctx,
 		cancel:    cancel,
+		unaryInt:  chainUnaryServer(o.unary),
+		streamInt: chainStreamServer(o.stream),
 		services:  map[string]*serviceInfo{},
 		listeners: map[transport.Listener]struct{}{},
 		conns:     map[transport.Conn]*serverConn{},
@@ -373,8 +382,7 @@ func (s *Server) handleStream(st transport.Stream) {
 		s.processUnary(ctx, ss, info, info.methods[method])
 	case info.streams[method] != nil:
 		ss.desc = info.streams[method]
-		err := ss.desc.Handler(info.impl, ss)
-		ss.finish(handlerStatus(err))
+		ss.finish(handlerStatus(s.processStream(ss, info, "/"+service+"/"+method)))
 	default:
 		ss.finish(status.Newf(codes.Unimplemented, "unknown method %v for service %v", method, service))
 	}
@@ -415,12 +423,25 @@ func (s *Server) processUnary(ctx context.Context, ss *serverStream, info *servi
 		}
 		return nil
 	}
-	resp, err := md.Handler(info.impl, ctx, dec, nil)
+	// The generated handler runs the interceptors once it has the request.
+	resp, err := md.Handler(info.impl, ctx, dec, s.unaryInt)
 	if err != nil {
 		ss.finish(handlerStatus(err))
 		return
 	}
 	ss.finishUnary(resp)
+}
+
+// processStream runs a streaming method through the interceptors.
+func (s *Server) processStream(ss *serverStream, info *serviceInfo, fullMethod string) error {
+	if s.streamInt == nil {
+		return ss.desc.Handler(info.impl, ss)
+	}
+	return s.streamInt(info.impl, ss, &StreamServerInfo{
+		FullMethod:     fullMethod,
+		IsClientStream: ss.desc.ClientStreams,
+		IsServerStream: ss.desc.ServerStreams,
+	}, ss.desc.Handler)
 }
 
 // handlerStatus converts a handler's error to the status sent to the

@@ -3,8 +3,9 @@
 //
 // The API mirrors grpc-go: services are described by ServiceDesc, clients
 // call ClientConn.Invoke and ClientConn.NewStream, servers register
-// implementations with Server.RegisterService. Statuses, codes and metadata
-// live in the status, codes and metadata subpackages. Messages are protobuf
+// implementations with Server.RegisterService, and interceptors wrap calls
+// on both sides. Statuses, codes and metadata live in the status, codes and
+// metadata subpackages. Messages are protobuf
 // messages; the wire format is described in docs/protocol.md.
 package rpc
 
@@ -57,8 +58,9 @@ type UnaryServerInfo struct {
 // UnaryHandler calls the implementation of a unary method.
 type UnaryHandler func(ctx context.Context, req any) (any, error)
 
-// UnaryServerInterceptor wraps unary calls on the server. Chains of
-// interceptors are configured on the Server in phase 3 of the project.
+// UnaryServerInterceptor wraps unary calls on the server. It runs the method
+// by calling handler, after the request was read and decoded; see
+// ChainUnaryInterceptor.
 type UnaryServerInterceptor func(ctx context.Context, req any, info *UnaryServerInfo, handler UnaryHandler) (resp any, err error)
 
 // ClientConnInterface is what generated clients call: *ClientConn implements it.
