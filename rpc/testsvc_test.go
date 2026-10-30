@@ -42,12 +42,19 @@ var echoDesc = rpc.ServiceDesc{
 	Metadata: "test.proto",
 }
 
-func unaryHandler(srv any, ctx context.Context, dec func(any) error, _ rpc.UnaryServerInterceptor) (any, error) { //nolint:revive // rpc.MethodHandler mirrors grpc-go, ctx comes second
+func unaryHandler(srv any, ctx context.Context, dec func(any) error, interceptor rpc.UnaryServerInterceptor) (any, error) { //nolint:revive // rpc.MethodHandler mirrors grpc-go, ctx comes second
 	in := new(msg)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
-	return srv.(echoService).Unary(ctx, in)
+	if interceptor == nil {
+		return srv.(echoService).Unary(ctx, in)
+	}
+	info := &rpc.UnaryServerInfo{Server: srv, FullMethod: unaryMethod}
+	handler := func(ctx context.Context, req any) (any, error) {
+		return srv.(echoService).Unary(ctx, req.(*msg))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func bidiHandler(srv any, stream rpc.ServerStream) error {
@@ -102,12 +109,23 @@ func newEnv(t *testing.T, newTransport transporttest.Factory, impl *testServer) 
 
 func newEnvWithLimit(t *testing.T, newTransport transporttest.Factory, impl *testServer, maxStreams int) *env {
 	t.Helper()
+	return startEnv(t, newTransport, impl, maxStreams, nil, nil)
+}
+
+// newEnvWithOptions is newEnv with options for the server and the client.
+func newEnvWithOptions(t *testing.T, newTransport transporttest.Factory, impl *testServer, sopts []rpc.ServerOption, copts []rpc.DialOption) *env {
+	t.Helper()
+	return startEnv(t, newTransport, impl, 100, sopts, copts)
+}
+
+func startEnv(t *testing.T, newTransport transporttest.Factory, impl *testServer, maxStreams int, sopts []rpc.ServerOption, copts []rpc.DialOption) *env {
+	t.Helper()
 	l, d := newTransport(t, maxStreams)
-	srv := rpc.NewServer()
+	srv := rpc.NewServer(sopts...)
 	srv.RegisterService(&echoDesc, impl)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(l) }()
-	cc := rpc.NewClient(d)
+	cc := rpc.NewClient(d, copts...)
 	t.Cleanup(func() {
 		_ = cc.Close()
 		srv.Stop()
