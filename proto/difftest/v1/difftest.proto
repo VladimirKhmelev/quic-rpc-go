@@ -9,14 +9,22 @@ option go_package = "github.com/VladimirKhmelev/quic-rpc-go/internal/gen/difftes
 // DiffTest answers as the scenario of the request says.
 service DiffTest {
   // Unary answers with one response or with the status of the scenario.
-  rpc Unary(Request) returns (Response);
+  rpc Unary(Request) returns (Response) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
   // Bidi takes the scenario from its first request.
-  rpc Bidi(stream Request) returns (stream Response);
+  rpc Bidi(stream Request) returns (stream Response) {
+    option idempotency_level = IDEMPOTENT;
+  }
   // ServerStream answers its request with the responses of the scenario.
-  rpc ServerStream(Request) returns (stream Response);
+  rpc ServerStream(Request) returns (stream Response) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
   // ClientStream takes the scenario from its first request and answers with
   // the number of requests it read as the seq of its response.
-  rpc ClientStream(stream Request) returns (Response);
+  rpc ClientStream(stream Request) returns (Response) {
+    option idempotency_level = IDEMPOTENT;
+  }
 }
 
 message Request {

@@ -29,6 +29,11 @@ var errClientConnClosing = status.Error(codes.Canceled, "client connection is cl
 // connection, a streaming call fails with Unavailable. A streaming call
 // keeps its connection until it ends or its context does.
 //
+// With an early-data transport, Idempotent calls may start before the TLS
+// handshake completes. Explicitly rejected early data was not processed:
+// unary retries once after the handshake, streaming fails with Unavailable.
+// This shares the one-retry budget with REFUSED; other call errors are not retried.
+//
 // It is safe for concurrent use.
 type ClientConn struct {
 	dialer transport.Dialer
@@ -226,15 +231,21 @@ func (cc *ClientConn) Invoke(ctx context.Context, method string, args, reply any
 // invoke performs a unary call after the interceptors. A call the server
 // refused was not processed; it goes out once more, on a new connection, as
 // grpc-go retries a stream refused with REFUSED_STREAM transparently
-// (shouldRetry in stream.go). The interceptors see one call either way.
+// (shouldRetry in stream.go). Rejected early data also permits one retry,
+// after the handshake. The interceptors see one call either way.
 func invoke(ctx context.Context, method string, args, reply any, cc *ClientConn, opts ...CallOption) error {
 	for retried := false; ; retried = true {
 		cs, err := cc.newStream(ctx, &unaryStreamDesc, method, opts, args, true)
 		if err != nil {
 			return err
 		}
-		if err := cs.RecvMsg(reply); !cs.refused || retried {
+		if err := cs.RecvMsg(reply); (!cs.refused && !cs.earlyRejected) || retried {
 			return err
+		}
+		if cs.earlyRejected {
+			// Rejection guarantees the server processed none of the early
+			// data. Retry after the handshake, within the original deadline.
+			opts = append(append([]CallOption(nil), opts...), Idempotent(false))
 		}
 	}
 }
@@ -263,7 +274,8 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
 	}
-	c, st, err := cc.openStream(ctx)
+	ci := newCallInfo(opts)
+	c, st, err := cc.openStream(ctx, ci.idempotent)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +312,7 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 		ctx:         ctx,
 		desc:        desc,
 		st:          st,
-		info:        newCallInfo(opts),
+		info:        ci,
 		headerReady: make(chan struct{}),
 	}
 	cs.recv = call.NewClientRecv(frame.NewReader(st, frame.DefaultLimits()), cs.noteHeader)
@@ -324,13 +336,18 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 // to open on it has sent nothing, so the call dials again and tries once
 // more (RPC-12). grpc-go retries such a call transparently as well:
 // NewStreamError.AllowTransparentRetry (internal/transport/http2_client.go).
-func (cc *ClientConn) openStream(ctx context.Context) (*connection, transport.Stream, error) {
+func (cc *ClientConn) openStream(ctx context.Context, early bool) (*connection, transport.Stream, error) {
 	for retried := false; ; retried = true {
 		c, err := cc.getConn(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		st, err := c.OpenStream(ctx)
+		var st transport.Stream
+		if ec, ok := c.Conn.(transport.EarlyConn); early && ok {
+			st, err = ec.OpenStreamEarly(ctx)
+		} else {
+			st, err = c.OpenStream(ctx)
+		}
 		if err == nil {
 			return c, st, nil
 		}

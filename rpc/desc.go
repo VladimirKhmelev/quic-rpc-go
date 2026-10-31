@@ -20,6 +20,9 @@ type MethodHandler func(srv any, ctx context.Context, dec func(any) error, inter
 type MethodDesc struct {
 	MethodName string
 	Handler    MethodHandler
+	// Idempotent permits execution before the handshake completes. The
+	// handler and its interceptors must tolerate replay of the entire call.
+	Idempotent bool
 }
 
 // StreamHandler runs a streaming method of srv.
@@ -33,6 +36,9 @@ type StreamDesc struct {
 	ServerStreams bool
 	// ClientStreams reports whether the client may send several messages.
 	ClientStreams bool
+	// Idempotent permits early execution of the entire stream, including
+	// every message and the interceptors. They must all tolerate replay.
+	Idempotent bool
 }
 
 // ServiceDesc describes a service.

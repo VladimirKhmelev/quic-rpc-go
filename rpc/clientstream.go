@@ -39,6 +39,8 @@ type clientStream struct {
 	finalErr   error // what RecvMsg returns once the call ended
 	// refused is set when the server refused the call unprocessed.
 	refused bool
+	// earlyRejected is set only for an explicit rejection of unprocessed data.
+	earlyRejected bool
 
 	ended       atomic.Bool
 	headerOnce  sync.Once
@@ -145,6 +147,13 @@ func (cs *clientStream) statusFor(err error) *status.Status {
 	}
 	if _, ok := errors.AsType[*transport.ConnError](err); ok && cs.cc.isClosed() {
 		return status.Convert(errClientConnClosing)
+	}
+	if errors.Is(err, transport.ErrEarlyDataRejected) {
+		if cs.cc.isClosed() {
+			return status.Convert(errClientConnClosing)
+		}
+		cs.earlyRejected = true
+		return status.New(codes.Unavailable, err.Error())
 	}
 	// The server refuses calls only once it is going away, possibly before
 	// its GOAWAY has arrived: no new call goes on this connection.

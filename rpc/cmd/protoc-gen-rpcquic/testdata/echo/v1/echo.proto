@@ -15,13 +15,21 @@ message Msg {
 // Echo answers with what it gets.
 service Echo {
   // Unary echoes one message.
-  rpc Unary(Msg) returns (Msg);
+  rpc Unary(Msg) returns (Msg) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
   // Split sends the text back a letter per message.
-  rpc Split(Msg) returns (stream Msg);
+  rpc Split(Msg) returns (stream Msg) {
+    option idempotency_level = IDEMPOTENT;
+  }
   // Bidi echoes every message of the stream.
-  rpc Bidi(stream Msg) returns (stream Msg);
+  rpc Bidi(stream Msg) returns (stream Msg) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
   // Join answers with the texts of the stream joined.
-  rpc Join(stream Msg) returns (Msg);
+  rpc Join(stream Msg) returns (Msg) {
+    option idempotency_level = IDEMPOTENT;
+  }
   // Old is kept for older clients.
   rpc Old(Msg) returns (Msg) {
     option deprecated = true;

@@ -49,7 +49,7 @@ func generateFile(gen *protogen.Plugin, file *protogen.File, suffix string) erro
 	g.P()
 	g.P("// This is a compile-time assertion that this generated file is compatible")
 	g.P("// with the rpc package it is compiled against.")
-	g.P("const _ = ", rpcPackage.Ident("SupportPackageIsVersion1"))
+	g.P("const _ = ", rpcPackage.Ident("SupportPackageIsVersion2"))
 	g.P()
 	for _, s := range file.Services {
 		genService(g, file, s)
@@ -204,6 +204,9 @@ func genService(g *protogen.GeneratedFile, file *protogen.File, s *protogen.Serv
 		g.P("{")
 		g.P(`MethodName: "`, m.GoName, `",`)
 		g.P("Handler: ", handlerName(s, m.GoName), ",")
+		if isIdempotent(m) {
+			g.P("Idempotent: true,")
+		}
 		g.P("},")
 	}
 	g.P("},")
@@ -212,6 +215,9 @@ func genService(g *protogen.GeneratedFile, file *protogen.File, s *protogen.Serv
 		g.P("{")
 		g.P(`StreamName: "`, m.GoName, `",`)
 		g.P("Handler: ", handlerName(s, m.GoName), ",")
+		if isIdempotent(m) {
+			g.P("Idempotent: true,")
+		}
 		if m.Desc.IsStreamingServer() {
 			g.P("ServerStreams: true,")
 		}
@@ -232,6 +238,9 @@ func genClientMethod(g *protogen.GeneratedFile, s *protogen.Service, m *protogen
 		g.P(deprecationComment)
 	}
 	g.P("func (", receiver, ") ", clientSignature(g, m), " {")
+	if isIdempotent(m) {
+		g.P("opts = append([]", rpcPackage.Ident("CallOption"), "{", rpcPackage.Ident("Idempotent"), "(true)}, opts...)")
+	}
 	if isUnary(m) {
 		g.P("out := new(", g.QualifiedGoIdent(m.Output.GoIdent), ")")
 		g.P("if err := c.cc.Invoke(ctx, ", fullMethodName(s, m), ", in, out, opts...); err != nil {")
@@ -402,6 +411,11 @@ func genLeadingComments(g *protogen.GeneratedFile, loc protoreflect.SourceLocati
 
 func isUnary(m *protogen.Method) bool {
 	return !m.Desc.IsStreamingClient() && !m.Desc.IsStreamingServer()
+}
+
+func isIdempotent(m *protogen.Method) bool {
+	level := m.Desc.Options().(*descriptorpb.MethodOptions).GetIdempotencyLevel()
+	return level == descriptorpb.MethodOptions_IDEMPOTENT || level == descriptorpb.MethodOptions_NO_SIDE_EFFECTS
 }
 
 func fullMethodName(s *protogen.Service, m *protogen.Method) string {
