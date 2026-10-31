@@ -416,12 +416,12 @@ const file_difftest_v1_difftest_proto_rawDesc = "" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"2\n" +
 	"\bMetadata\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value2\xf7\x01\n" +
-	"\bDiffTest\x124\n" +
-	"\x05Unary\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response\x127\n" +
-	"\x04Bidi\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response(\x010\x01\x12=\n" +
-	"\fServerStream\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response0\x01\x12=\n" +
-	"\fClientStream\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response(\x01BLZJgithub.com/VladimirKhmelev/quic-rpc-go/internal/gen/difftest/v1;difftestv1b\x06proto3"
+	"\x05value\x18\x02 \x01(\fR\x05value2\x8b\x02\n" +
+	"\bDiffTest\x129\n" +
+	"\x05Unary\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response\"\x03\x90\x02\x01\x12<\n" +
+	"\x04Bidi\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response\"\x03\x90\x02\x02(\x010\x01\x12B\n" +
+	"\fServerStream\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response\"\x03\x90\x02\x010\x01\x12B\n" +
+	"\fClientStream\x12\x14.difftest.v1.Request\x1a\x15.difftest.v1.Response\"\x03\x90\x02\x02(\x01BLZJgithub.com/VladimirKhmelev/quic-rpc-go/internal/gen/difftest/v1;difftestv1b\x06proto3"
 
 var (
 	file_difftest_v1_difftest_proto_rawDescOnce sync.Once
