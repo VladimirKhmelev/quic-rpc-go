@@ -204,7 +204,7 @@ func (s *Server) serveConn(conn transport.Conn, sc *serverConn) {
 		}
 		go func() {
 			defer s.callDone()
-			s.handleStream(st)
+			s.handleStream(conn, st)
 		}()
 	}
 }
@@ -340,7 +340,7 @@ func (s *Server) Stop() {
 	s.serveWG.Wait()
 }
 
-func (s *Server) handleStream(st transport.Stream) {
+func (s *Server) handleStream(conn transport.Conn, st transport.Stream) {
 	fr := frame.NewReader(st, frame.DefaultLimits())
 	req, err := call.ReadRequestHeaders(fr)
 	if err != nil {
@@ -375,6 +375,14 @@ func (s *Server) handleStream(st transport.Stream) {
 
 	service, method, _ := strings.Cut(strings.TrimPrefix(req.Method, "/"), "/")
 	info := s.service(service)
+	if ec, ok := conn.(transport.EarlyConn); ok && !idempotentMethod(info, method) {
+		// A client annotation cannot authorize early server-side effects.
+		// This also protects services registered through grpcbridge.
+		if err := ec.WaitHandshake(ctx); err != nil {
+			ss.abort(call.ResetCode(err))
+			return
+		}
+	}
 	switch {
 	case info == nil:
 		ss.finish(status.Newf(codes.Unimplemented, "unknown service %v", service))
@@ -386,6 +394,19 @@ func (s *Server) handleStream(st transport.Stream) {
 	default:
 		ss.finish(status.Newf(codes.Unimplemented, "unknown method %v for service %v", method, service))
 	}
+}
+
+func idempotentMethod(info *serviceInfo, method string) bool {
+	if info == nil {
+		return false
+	}
+	if m := info.methods[method]; m != nil {
+		return m.Idempotent
+	}
+	if m := info.streams[method]; m != nil {
+		return m.Idempotent
+	}
+	return false
 }
 
 func (s *Server) service(name string) *serviceInfo {
