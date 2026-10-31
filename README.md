@@ -55,6 +55,53 @@ protoc --go_out=. --go_opt=paths=source_relative \
 
 Поддерживаются методы всех четырёх видов: unary, server-stream, client-stream и bidi.
 
+## 0-RTT при переподключении
+
+API ниже доступен в текущих исходниках. Для использования сгенерированного кода
+нужна библиотека с `SupportPackageIsVersion2`; старые сгенерированные клиенты
+продолжают работать. Формат на проводе остаётся `qrpc/2`.
+
+0-RTT включается явно на обеих сторонах:
+
+```go
+listener, err := rpcquic.Listen(addr, serverTLS, &quic.Config{Allow0RTT: true})
+// Handle err, register services, then serve listener with rpc.Server.
+
+dialer := &rpcquic.Dialer{
+    Addr:       addr,
+    TLSConfig:  clientTLS,
+    Enable0RTT: true,
+}
+client := rpc.NewClient(dialer)
+```
+
+Клиент сохраняет TLS-билет в кеше на время жизни `dialer`. Можно передать свой
+`clientTLS.ClientSessionCache`, чтобы разделять билеты между несколькими dialer.
+Первое соединение проходит обычный handshake; ускорение возможно после получения
+билета и повторного подключения к серверу, который его принимает.
+
+Раньше завершения handshake отправляются только явно помеченные идемпотентные
+вызовы. Стандартная отметка в `.proto` переносится генератором на обе стороны:
+
+```proto
+rpc GetProfile(GetProfileRequest) returns (GetProfileResponse) {
+  option idempotency_level = NO_SIDE_EFFECTS;
+}
+```
+
+Поддерживается и `IDEMPOTENT`. Для ручного клиента есть `rpc.Idempotent(true)`,
+а для ручной регистрации сервера — поле `Idempotent` в `MethodDesc` и `StreamDesc`.
+Опция `rpc.Idempotent(false)` отключает раннюю отправку отдельного вызова, включая
+сгенерированный. Непомеченные вызовы ждут handshake; сервер отдельно проверяет
+свою отметку до запуска обработчика и interceptors.
+
+Ранние данные могут быть воспроизведены повторно: отметка должна учитывать весь
+вызов, его метаданные, серверные interceptors и все сообщения стрима. При отказе
+от 0-RTT unary автоматически повторяется один раз после handshake, а уже начатый
+стрим возвращает `Unavailable` через `RecvMsg`/`Recv`. Подробности, ограничения TLS
+и команда приёмочного замера — в [описании протокола](docs/protocol.md#0-rtt).
+В `grpcbridge` включение ранних вызовов пока не предусмотрено.
+
 ## Документация
 
 - [Протокол](docs/protocol.md): кадры, порядок кадров в вызове, коды ошибок, соответствие gRPC.
