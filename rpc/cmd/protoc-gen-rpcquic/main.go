@@ -24,7 +24,7 @@ import (
 )
 
 // version is printed into generated files; bump it when their content changes.
-const version = "v0.1.0"
+const version = "v0.2.0"
 
 type options struct {
 	packageSuffix string
