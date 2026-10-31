@@ -110,6 +110,26 @@ type Conn interface {
 	Context() context.Context
 }
 
+// EarlyConn is an optional capability for replayable early data. OpenStream
+// on such a connection still waits for the handshake. Implementations without
+// this capability have no early data phase.
+type EarlyConn interface {
+	Conn
+	// OpenStreamEarly may send data before the peer is authenticated. Only
+	// idempotent calls, including their metadata, may use these streams.
+	// Rejection invalidates existing early streams with ErrEarlyDataRejected;
+	// later opens recover on the same connection after the handshake.
+	OpenStreamEarly(ctx context.Context) (Stream, error)
+	// WaitHandshake waits for successful authentication and recovery from
+	// early data rejection. Canceling ctx does not close the connection.
+	WaitHandshake(ctx context.Context) error
+}
+
+// ErrEarlyDataRejected means the peer discarded all early data without
+// processing it. The connection remains usable after WaitHandshake, but the
+// rejected streams cannot be reused. It is not a connection failure.
+var ErrEarlyDataRejected = errors.New("early data rejected")
+
 // Listener accepts incoming connections.
 type Listener interface {
 	// Accept waits for the next connection. After Close it returns
