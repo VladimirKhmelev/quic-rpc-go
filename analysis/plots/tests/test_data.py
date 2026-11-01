@@ -118,3 +118,22 @@ def test_pool_tables_require_explicit_setup(tmp_path):
     series.runs.drop(columns=["pool_size", "pool_policy"]).to_csv(out / data.RUNS_FILE, index=False)
     with pytest.raises(ValueError, match="missing pool_size"):
         data.read_tables(out)
+
+
+def test_negotiated_http_version(tmp_path):
+    path = make_series(tmp_path / "s", ["base"], ["small"], 1)
+    plan_path = path / "series.json"
+    plan = json.loads(plan_path.read_text())
+    run = plan["runs"][1]
+    run.update(variant="grpc-h3", transport="grpc-h3")
+    plan_path.write_text(json.dumps(plan))
+    meta_path = path / run["id"] / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["tls"][0]["alpn"] = "h3"
+    meta_path.write_text(json.dumps(meta))
+    rows = data.read_series(path).runs.set_index("run_id")
+    assert rows.loc[run["id"], "alpn"] == "h3"
+    meta["tls"][0]["alpn"] = "h2"
+    meta_path.write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="negotiated ALPN"):
+        data.read_series(path)
