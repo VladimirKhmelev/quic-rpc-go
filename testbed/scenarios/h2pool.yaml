@@ -1,0 +1,19 @@
+# GEN-8 / EXP-9: compare one QUIC connection with 1/2/4/8 HTTP/2 connections.
+# Includes the ordinary grpc-h2 baseline to check the pool's N=1 overhead.
+# The load is identical for every variant, not multiplied by the pool size.
+# Preview: bin/bench series -matrix testbed/scenarios/h2pool.yaml -dry-run
+name: h2pool
+seed: 1
+repeats: 10
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+  - {name: grpc-h2-pool-1, transport: grpc-h2-pool, tcp: aligned, pool_size: 1}
+  - {name: grpc-h2-pool-2, transport: grpc-h2-pool, tcp: aligned, pool_size: 2}
+  - {name: grpc-h2-pool-4, transport: grpc-h2-pool, tcp: aligned, pool_size: 4}
+  - {name: grpc-h2-pool-8, transport: grpc-h2-pool, tcp: aligned, pool_size: 8}
+networks: [base, loss-2]
+loads: [small, small-heavy]
+drift: base
