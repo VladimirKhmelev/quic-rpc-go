@@ -118,6 +118,23 @@ make bench-series MATRIX=testbed/scenarios/h2pool.yaml SERIESFLAGS=-dry-run
 готовность всего нового пула. Правила сравнения описаны в
 [методике](docs/methodology.md#пул-grpchttp2-gen-8).
 
+## HTTP/3 и контроль HTTP/2
+
+Доступны также `grpc-h3` — gRPC через connect-go по HTTP/3 — и `connect-h2`,
+контрольный вариант того же обработчика и протокола gRPC по HTTP/2. Оба
+используют одно соединение и полный handshake, без автоматической смены HTTP.
+
+```sh
+make bench-run TRANSPORT=grpc-h3 LOAD=bidi
+make bench-run TRANSPORT=connect-h2 LOAD=small-heavy
+make bench-series MATRIX=testbed/scenarios/baselines.yaml SERIESFLAGS=-dry-run
+```
+
+Connect-go и его генератор закреплены в корневом модуле. `make proto` генерирует
+также `*.connect.go`; устанавливать отдельный генератор вручную не требуется.
+Различия окон, лимитов и обработки некорректных вызовов описаны в
+[методике](docs/methodology.md#grpc-по-http3-и-контроль-connect-gohttp2-gen-8).
+
 ## Документация
 
 - [Протокол](docs/protocol.md): кадры, порядок кадров в вызове, коды ошибок, соответствие gRPC.
