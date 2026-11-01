@@ -3,12 +3,12 @@
 // Usage:
 //
 //	bench certs -dir DIR [-hosts HOST,...]
-//	bench server -transport quic|grpc-h2 -addr HOST:PORT -certs DIR
-//	bench load -transport quic|grpc-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
-//	           [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N]
-//	bench run -transport quic|grpc-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
+//	bench server -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR
+//	bench load -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR -profile NAME -out FILE
+//	           [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N] [-pool-size N]
+//	bench run -transport quic|grpc-h2|grpc-h2-pool -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
 //	          [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
-//	          [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-out DIR]
+//	          [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-pool-size N] [-out DIR]
 //	bench series -matrix FILE [-out DIR] [-strict] [-check=false] [-dry-run]
 //	             [-bench BIN] [-testbed BIN]
 //
@@ -76,12 +76,12 @@ import (
 
 const usage = `usage:
   bench certs -dir DIR [-hosts HOST,...]
-  bench server -transport quic|grpc-h2 -addr HOST:PORT -certs DIR
-  bench load -transport quic|grpc-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
-             [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N]
-  bench run -transport quic|grpc-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
+  bench server -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR
+  bench load -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR -profile NAME -out FILE
+             [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N] [-pool-size N]
+  bench run -transport quic|grpc-h2|grpc-h2-pool -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
             [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
-            [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-out DIR]
+            [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-pool-size N] [-out DIR]
   bench series -matrix FILE [-out DIR] [-strict] [-check=false] [-dry-run]
                [-bench BIN] [-testbed BIN]
 `
@@ -121,7 +121,7 @@ func run(args []string) (int, error) {
 		}
 		return 0, b.Write(*dir)
 	case "server":
-		transport := fs.String("transport", "", "serve with `TRANSPORT`: quic or grpc-h2")
+		transport := fs.String("transport", "", "serve with `TRANSPORT`: quic, grpc-h2 or grpc-h2-pool")
 		addr := fs.String("addr", "", "listen on `HOST:PORT`")
 		certsDir := fs.String("certs", "", "read the certificates from `DIR`")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -137,7 +137,7 @@ func run(args []string) (int, error) {
 		return serve(t, *addr, *certsDir)
 	case "load":
 		var c loadConfig
-		fs.StringVar(&c.transport, "transport", "", "call with `TRANSPORT`: quic or grpc-h2")
+		fs.StringVar(&c.transport, "transport", "", "call with `TRANSPORT`: quic, grpc-h2 or grpc-h2-pool")
 		fs.StringVar(&c.addr, "addr", "", "call the server at `HOST:PORT`")
 		fs.StringVar(&c.certs, "certs", "", "read the certificates from `DIR`")
 		fs.StringVar(&c.profile, "profile", "", "run load profile `NAME`")
@@ -148,16 +148,20 @@ func run(args []string) (int, error) {
 		fs.DurationVar(&c.cfg.Measure, "duration", 30*time.Second, "length of the measurement")
 		fs.DurationVar(&c.cfg.Timeout, "timeout", loadgen.DefaultTimeout, "deadline of every call")
 		fs.IntVar(&c.cfg.Closed, "closed", 0, "run closed-loop on `N` workers instead of open-loop")
+		fs.IntVar(&c.poolSize, "pool-size", 0, "number of connections for grpc-h2-pool (default 4)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2, nil // flag has printed the error
 		}
 		if c.addr == "" || c.certs == "" || c.profile == "" || c.out == "" || fs.NArg() != 0 {
 			return 2, fmt.Errorf("%w: load needs -transport, -addr, -certs, -profile and -out", errUsage)
 		}
+		if err := checkPoolFlag(fs); err != nil {
+			return 2, err
+		}
 		return load(c)
 	case "run":
 		var c runConfig
-		fs.StringVar(&c.transport, "transport", "", "serve and call with `TRANSPORT`: quic or grpc-h2")
+		fs.StringVar(&c.transport, "transport", "", "serve and call with `TRANSPORT`: quic, grpc-h2 or grpc-h2-pool")
 		fs.StringVar(&c.load, "load", "", "run load profile `NAME`")
 		fs.StringVar(&c.network, "profile", netns.None.Name, "apply network profile `NAME`")
 		fs.StringVar(&c.tcp, "tcp", string(netns.TCPAligned), "TCP setup of the end hosts: aligned or default")
@@ -171,12 +175,16 @@ func run(args []string) (int, error) {
 		fs.StringVar(&c.profiles, "profiles", "", "read network profiles from `FILE` instead of the bundled ones")
 		fs.StringVar(&c.loads, "loads", "", "read load profiles from `FILE` instead of the bundled ones")
 		fs.BoolVar(&c.strict, "strict", false, "refuse to run on a machine not tuned for a series (NET-5)")
+		fs.IntVar(&c.poolSize, "pool-size", 0, "number of connections for grpc-h2-pool (default 4)")
 		fs.StringVar(&c.out, "out", "", "write the run into `DIR`, which must not exist")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2, nil // flag has printed the error
 		}
 		if c.load == "" || fs.NArg() != 0 {
 			return 2, fmt.Errorf("%w: run needs -transport and -load", errUsage)
+		}
+		if err := checkPoolFlag(fs); err != nil {
+			return 2, err
 		}
 		return benchRun(c)
 	case "series":
@@ -209,16 +217,33 @@ type runConfig struct {
 	warmup, measure, timeout                            time.Duration
 	gomaxprocs                                          int
 	strict                                              bool
+	poolSize                                            int
 }
 
 // loadConfig is the command line of load.
 type loadConfig struct {
 	transport, addr, certs, profile, loads, out string
 	cfg                                         loadgen.Config
+	poolSize                                    int
+}
+
+// Omission selects the transport default; an explicit size must be positive.
+func checkPoolFlag(fs *flag.FlagSet) error {
+	var err error
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "pool-size" && f.Value.(flag.Getter).Get().(int) <= 0 {
+			err = fmt.Errorf("%w: -pool-size must be positive", errUsage)
+		}
+	})
+	return err
 }
 
 func load(c loadConfig) (int, error) {
 	t, err := common.ParseTransport(c.transport)
+	if err != nil {
+		return 2, fmt.Errorf("%w: %w", errUsage, err)
+	}
+	options, err := (common.ClientOptions{PoolSize: c.poolSize}).Resolve(t)
 	if err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
@@ -244,7 +269,7 @@ func load(c loadConfig) (int, error) {
 	ev := newEvents(os.Stdout)
 	tlsConf := p.Client.Clone()
 	tlsConf.VerifyConnection = ev.verify
-	c.cfg.Dial = func() (common.Client, error) { return common.Dial(t, c.addr, tlsConf) }
+	c.cfg.Dial = func() (common.Client, error) { return common.Dial(t, c.addr, tlsConf, options) }
 	c.cfg.OnPhase = ev.phase
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

@@ -51,9 +51,10 @@ type matrix struct {
 
 // variant is a transport with a TCP setup of the end hosts.
 type variant struct {
-	Name      string `json:"name"      yaml:"name"`
-	Transport string `json:"transport" yaml:"transport"`
-	TCP       string `json:"tcp"       yaml:"tcp"`
+	common.ClientOptions `yaml:",inline"`
+	Name                 string `json:"name"      yaml:"name"`
+	Transport            string `json:"transport" yaml:"transport"`
+	TCP                  string `json:"tcp"       yaml:"tcp"`
 }
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -78,12 +79,16 @@ func parseMatrix(data []byte, networks []netns.Profile, loads []loadgen.Profile)
 	check(m.Duration > 0 && m.Warmup >= 0, "want a positive duration and no negative warmup")
 	check(len(m.Variants) > 0 && len(m.Networks) > 0 && len(m.Loads) > 0, "want variants, networks and loads")
 	seen := map[string]bool{}
-	for _, v := range m.Variants {
+	for i := range m.Variants {
+		v := &m.Variants[i]
 		check(nameRE.MatchString(v.Name), "variant %q: want lowercase letters, digits and dashes", v.Name)
 		check(!seen[v.Name], "variant %q is defined twice", v.Name)
 		seen[v.Name] = true
-		if _, err := common.ParseTransport(v.Transport); err != nil {
+		options, err := v.Resolve(common.Transport(v.Transport))
+		if err != nil {
 			errs = append(errs, fmt.Errorf("variant %s: %w", v.Name, err))
+		} else {
+			v.ClientOptions = options
 		}
 		if _, err := netns.ParseTCP(v.TCP); err != nil {
 			errs = append(errs, fmt.Errorf("variant %s: %w", v.Name, err))
@@ -114,6 +119,7 @@ func parseMatrix(data []byte, networks []netns.Profile, loads []loadgen.Profile)
 
 // plannedRun is a run of a series.
 type plannedRun struct {
+	common.ClientOptions
 	ID        string `json:"id"`
 	Variant   string `json:"variant"`
 	Transport string `json:"transport"`
@@ -140,7 +146,8 @@ func plan(m matrix) []plannedRun {
 		rng.Shuffle(len(vs), func(i, j int) { vs[i], vs[j] = vs[j], vs[i] })
 		for _, v := range vs {
 			runs = append(runs, plannedRun{Variant: v.Name, Transport: v.Transport, TCP: v.TCP, Network: network,
-				Load: load, Repeat: repeat, Seed: uint64(max(repeat, 1)), Role: role}) //nolint:gosec // repeat is positive
+				ClientOptions: v.ClientOptions,
+				Load:          load, Repeat: repeat, Seed: uint64(max(repeat, 1)), Role: role}) //nolint:gosec // repeat is positive
 		}
 	}
 	drift := func(role string) {
@@ -192,6 +199,17 @@ type seriesFile struct {
 
 // setup is what a resumed series must share with its start.
 func (s seriesFile) setup() ([]byte, error) {
+	// Before pools were introduced, these fields were absent. Normalize
+	// copies for comparison without rewriting the saved historical plan.
+	s.Matrix.Variants = slices.Clone(s.Matrix.Variants)
+	for i := range s.Matrix.Variants {
+		v := &s.Matrix.Variants[i]
+		o, err := v.Resolve(common.Transport(v.Transport))
+		if err != nil {
+			return nil, err
+		}
+		v.ClientOptions = o
+	}
 	return json.Marshal(struct {
 		Matrix   matrix            `json:"matrix"`
 		Networks []netns.Profile   `json:"networks"`
@@ -279,6 +297,18 @@ func openSeries(dir string, s seriesFile) (seriesFile, error) {
 		}
 		if !bytes.Equal(was, is) {
 			return seriesFile{}, fmt.Errorf("the series in %s was planned with another matrix or other profiles", dir)
+		}
+		variants := make(map[string]common.ClientOptions)
+		for _, v := range s.Matrix.Variants {
+			variants[v.Name] = v.ClientOptions
+		}
+		for i := range old.Runs {
+			r := &old.Runs[i]
+			o, err := r.Resolve(common.Transport(r.Transport))
+			if err != nil || o != variants[r.Variant] {
+				return seriesFile{}, fmt.Errorf("run %s: connection setup differs from its variant", r.ID)
+			}
+			r.ClientOptions = o
 		}
 		fmt.Fprintf(os.Stderr, "bench: resuming the series in %s\n", dir)
 		return old, nil
@@ -373,6 +403,9 @@ func runSeries(ctx context.Context, c seriesConfig, dir string, s seriesFile, re
 func runArgs(m matrix, r plannedRun, dir string, strict bool) []string {
 	args := []string{"run", "-transport", r.Transport, "-tcp", r.TCP, "-profile", r.Network, "-load", r.Load,
 		"-seed", strconv.FormatUint(r.Seed, 10), "-warmup", m.Warmup.String(), "-duration", m.Duration.String(), "-out", dir}
+	if r.Transport == string(common.GRPCH2Pool) {
+		args = append(args, "-pool-size", strconv.Itoa(r.PoolSize))
+	}
 	if strict {
 		args = append(args, "-strict")
 	}

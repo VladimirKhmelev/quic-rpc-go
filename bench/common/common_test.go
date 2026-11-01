@@ -34,8 +34,9 @@ type env struct {
 	client common.Client
 	// curve is the key exchange of the last handshake of the client;
 	// handshakes counts them.
-	curve      atomic.Uint32
-	handshakes atomic.Int32
+	curve       atomic.Uint32
+	handshakes  atomic.Int32
+	connections int
 }
 
 // forEach runs fn on a server and a client of every transport over
@@ -48,6 +49,11 @@ func forEach(t *testing.T, fn func(t *testing.T, e *env)) {
 				t.Fatal(err)
 			}
 			e := &env{}
+			options, err := (common.ClientOptions{}).Resolve(tr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.connections = options.PoolSize
 			srv, err := common.Listen(tr, "127.0.0.1:0", p.Server)
 			if err != nil {
 				t.Fatal(err)
@@ -87,8 +93,8 @@ func TestConnect(t *testing.T) {
 			t.Fatalf("call after Connect: %d, %v", n, err)
 		}
 		// The call used the connection Connect set up.
-		if n := e.handshakes.Load(); n != 1 {
-			t.Errorf("%d handshakes for Connect and a call, want 1", n)
+		if n := e.handshakes.Load(); int(n) != e.connections {
+			t.Errorf("%d handshakes for Connect and a call, want %d", n, e.connections)
 		}
 	})
 }

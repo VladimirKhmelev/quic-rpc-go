@@ -102,6 +102,22 @@ rpc GetProfile(GetProfileRequest) returns (GetProfileResponse) {
 и команда приёмочного замера — в [описании протокола](docs/protocol.md#0-rtt).
 В `grpcbridge` включение ранних вызовов пока не предусмотрено.
 
+## Пул gRPC/HTTP/2
+
+Эталон `grpc-h2-pool` использует по умолчанию четыре независимых TCP-соединения.
+Новые RPC распределяются round-robin. Размер задаётся через `-pool-size N`;
+bidi остаётся на выбранном соединении до завершения.
+
+```sh
+make bench-run TRANSPORT=grpc-h2-pool LOAD=small-heavy RUNFLAGS="-pool-size 4"
+make bench-series MATRIX=testbed/scenarios/h2pool.yaml SERIESFLAGS=-dry-run
+```
+
+Матрица `h2pool.yaml` сравнивает N = 1/2/4/8 с одним соединением gRPC и с QUIC.
+Подготовка пула идёт параллельно; в профиле переподключений `connect` означает
+готовность всего нового пула. Правила сравнения описаны в
+[методике](docs/methodology.md#пул-grpchttp2-gen-8).
+
 ## Документация
 
 - [Протокол](docs/protocol.md): кадры, порядок кадров в вызове, коды ошибок, соответствие gRPC.

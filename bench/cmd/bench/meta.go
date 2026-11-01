@@ -22,6 +22,7 @@ import (
 // meta is meta.json: everything about a run but its calls (GEN-6, GEN-7).
 // data/schema.md describes it.
 type meta struct {
+	common.ClientOptions
 	RunID     string           `json:"run_id"`
 	Transport common.Transport `json:"transport"`
 	Network   netns.Profile    `json:"network"`

@@ -54,10 +54,41 @@ def busy_ns(core: dict) -> int:
     return sum(core[k] for k in ("user_ns", "nice_ns", "system_ns", "irq_ns", "softirq_ns", "steal_ns"))
 
 
+def connection_setup(record: dict, transport: str) -> tuple[int, str]:
+    """Reads the effective setup. Only historical single-connection data
+    can omit the pool fields; a pool's size must never be guessed."""
+    pooled = transport == "grpc-h2-pool"
+    size = record.get("pool_size", None if pooled else 1)
+    policy = record.get("pool_policy", None if pooled else "single")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 1:
+        raise ValueError(f"{transport}: invalid or missing pool_size {size!r}")
+    expected = "round-robin" if pooled else "single"
+    if (not pooled and size != 1) or policy != expected:
+        raise ValueError(f"{transport}: invalid connection setup ({size}, {policy!r})")
+    return size, policy
+
+
+def normalize_setups(runs: pd.DataFrame) -> pd.DataFrame:
+    """Preserves legacy tables and rejects pooling different setups under
+    the same variant name, which is the unit used by the statistics."""
+    runs = runs.copy()
+    setups = [connection_setup(r, r["transport"]) for r in runs.to_dict("records")]
+    runs["pool_size"] = [s[0] for s in setups]
+    runs["pool_policy"] = [s[1] for s in setups]
+    for variant, group in runs.groupby("variant", observed=True):
+        if len(group[["transport", "tcp", "pool_size", "pool_policy"]].drop_duplicates()) != 1:
+            raise ValueError(f"variant {variant!r}: different connection setups")
+    return runs
+
+
 def run_row(planned: dict, meta: dict) -> dict:
     """Returns the row of runs.csv of a run: its place in the plan, the
     network, and the CPU, goodput and calls in flight of meta.json."""
     net = meta["network"]
+    transport = planned["transport"]
+    setup = connection_setup(planned, transport)
+    if meta.get("transport", transport) != transport or connection_setup(meta, transport) != setup:
+        raise ValueError(f"{planned['id']}: connection setup differs from plan")
     cores = {c["id"]: c for c in meta["cores"]}
 
     def cores_busy(process: dict) -> int:
@@ -69,6 +100,8 @@ def run_row(planned: dict, meta: dict) -> dict:
         "run_id": planned["id"],
         "variant": planned["variant"],
         "transport": planned["transport"],
+        "pool_size": setup[0],
+        "pool_policy": setup[1],
         "tcp": planned["tcp"],
         "network": planned["network"],
         "load": planned["load"],
@@ -121,7 +154,7 @@ def read_series(path: str | Path) -> Series:
         calls.append(c)
     if not rows:
         raise ValueError(f"{path}: no finished runs")
-    return Series(runs=pd.DataFrame(rows), calls=_categorize(pd.concat(calls, ignore_index=True)), missing=missing)
+    return Series(runs=normalize_setups(pd.DataFrame(rows)), calls=_categorize(pd.concat(calls, ignore_index=True)), missing=missing)
 
 
 def _categorize(calls: pd.DataFrame) -> pd.DataFrame:
@@ -134,7 +167,7 @@ def write_tables(series: Series, out: str | Path) -> None:
     """Writes runs.csv and calls.parquet into out."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    series.runs.to_csv(out / RUNS_FILE, index=False)
+    normalize_setups(series.runs).to_csv(out / RUNS_FILE, index=False)
     series.calls.to_parquet(out / CALLS_FILE, compression="zstd", index=False)
 
 
@@ -143,4 +176,4 @@ def read_tables(path: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     path = Path(path)
     runs = pd.read_csv(path / RUNS_FILE, keep_default_na=False, na_values=[])
     calls = _categorize(pd.read_parquet(path / CALLS_FILE))
-    return runs, calls
+    return normalize_setups(runs), calls
