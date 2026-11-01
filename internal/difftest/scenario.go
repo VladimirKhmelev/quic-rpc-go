@@ -1,5 +1,5 @@
-// Package difftest runs the same scenarios through grpc-go and quic-rpc-go
-// and compares what clients see (TST-5). The servers of both stacks execute
+// Package difftest runs the same scenarios through grpc-go, quic-rpc-go and
+// connect-go and compares what clients see (TST-5). The servers execute
 // the scenario logic of this file through small adapters, so any difference
 // comes from the stacks, not from the handlers.
 package difftest
@@ -33,8 +33,7 @@ type side struct {
 }
 
 // bidiStream, serverStream and clientStream are the server sides of the
-// streaming calls; the generated stream types of both stacks have these
-// methods.
+// streaming calls, implemented by generated types or small adapters.
 type (
 	bidiStream interface {
 		Recv() (*difftestv1.Request, error)
