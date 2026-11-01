@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 import pytest
 from conftest import make_series
@@ -44,3 +46,75 @@ def test_read_series_without_runs(tmp_path):
             (run / "meta.json").unlink()
     with pytest.raises(ValueError, match="no finished runs"):
         data.read_series(path)
+
+
+def pooled_series(tmp_path, size=4):
+    path = make_series(tmp_path / "s", ["base"], ["small"], 1)
+    plan_path = path / "series.json"
+    plan = json.loads(plan_path.read_text())
+    pooled = []
+    for run in plan["runs"]:
+        if run["variant"] != "grpc-h2":
+            continue
+        run.update(variant=f"grpc-h2-pool-{size}", transport="grpc-h2-pool", pool_size=size, pool_policy="round-robin")
+        meta_path = path / run["id"] / "meta.json"
+        meta = json.loads(meta_path.read_text())
+        meta.update(transport=run["transport"], pool_size=size, pool_policy="round-robin")
+        meta_path.write_text(json.dumps(meta))
+        pooled.append(run)
+    plan_path.write_text(json.dumps(plan))
+    return path, plan, pooled
+
+
+def test_pool_metadata_round_trip(tmp_path):
+    path, _, _ = pooled_series(tmp_path, 8)
+    series = data.read_series(path)
+    pool = series.runs[series.runs["transport"] == "grpc-h2-pool"]
+    assert pool["pool_size"].tolist() == [8, 8, 8]
+    assert set(pool["pool_policy"]) == {"round-robin"}
+    legacy = series.runs[series.runs["transport"] != "grpc-h2-pool"]
+    assert set(legacy["pool_size"]) == {1} and set(legacy["pool_policy"]) == {"single"}
+    data.write_tables(series, tmp_path / "out")
+    runs, _ = data.read_tables(tmp_path / "out")
+    pd.testing.assert_frame_equal(runs, series.runs, check_dtype=False)
+
+
+def test_pool_plan_must_match_metadata(tmp_path):
+    path, _, pooled = pooled_series(tmp_path)
+    meta_path = path / pooled[0]["id"] / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["pool_size"] = 2
+    meta_path.write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="differs from plan"):
+        data.read_series(path)
+
+
+def test_variant_cannot_mix_pool_sizes(tmp_path):
+    path, plan, pooled = pooled_series(tmp_path)
+    pooled[0]["pool_size"] = 2
+    (path / "series.json").write_text(json.dumps(plan))
+    meta_path = path / pooled[0]["id"] / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["pool_size"] = 2
+    meta_path.write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="different connection setups"):
+        data.read_series(path)
+
+
+def test_read_legacy_tables(tmp_path):
+    series = data.read_series(make_series(tmp_path / "s", ["base"], ["small"], 1))
+    out = tmp_path / "out"
+    data.write_tables(series, out)
+    series.runs.drop(columns=["pool_size", "pool_policy"]).to_csv(out / data.RUNS_FILE, index=False)
+    runs, _ = data.read_tables(out)
+    assert set(runs["pool_size"]) == {1} and set(runs["pool_policy"]) == {"single"}
+
+
+def test_pool_tables_require_explicit_setup(tmp_path):
+    path, _, _ = pooled_series(tmp_path)
+    series = data.read_series(path)
+    out = tmp_path / "out"
+    data.write_tables(series, out)
+    series.runs.drop(columns=["pool_size", "pool_policy"]).to_csv(out / data.RUNS_FILE, index=False)
+    with pytest.raises(ValueError, match="missing pool_size"):
+        data.read_tables(out)
