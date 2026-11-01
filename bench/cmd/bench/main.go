@@ -3,10 +3,10 @@
 // Usage:
 //
 //	bench certs -dir DIR [-hosts HOST,...]
-//	bench server -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR
-//	bench load -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR -profile NAME -out FILE
+//	bench server -transport quic|grpc-h2|grpc-h2-pool|grpc-h3|connect-h2 -addr HOST:PORT -certs DIR
+//	bench load -transport quic|grpc-h2|grpc-h2-pool|grpc-h3|connect-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
 //	           [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N] [-pool-size N]
-//	bench run -transport quic|grpc-h2|grpc-h2-pool -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
+//	bench run -transport quic|grpc-h2|grpc-h2-pool|grpc-h3|connect-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
 //	          [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
 //	          [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-pool-size N] [-out DIR]
 //	bench series -matrix FILE [-out DIR] [-strict] [-check=false] [-dry-run]
@@ -76,10 +76,10 @@ import (
 
 const usage = `usage:
   bench certs -dir DIR [-hosts HOST,...]
-  bench server -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR
-  bench load -transport quic|grpc-h2|grpc-h2-pool -addr HOST:PORT -certs DIR -profile NAME -out FILE
+  bench server -transport quic|grpc-h2|grpc-h2-pool|grpc-h3|connect-h2 -addr HOST:PORT -certs DIR
+  bench load -transport quic|grpc-h2|grpc-h2-pool|grpc-h3|connect-h2 -addr HOST:PORT -certs DIR -profile NAME -out FILE
              [-loads FILE] [-seed N] [-warmup D] [-duration D] [-timeout D] [-closed N] [-pool-size N]
-  bench run -transport quic|grpc-h2|grpc-h2-pool -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
+  bench run -transport quic|grpc-h2|grpc-h2-pool|grpc-h3|connect-h2 -load NAME [-profile NAME] [-tcp SETUP] [-seed N]
             [-warmup D] [-duration D] [-timeout D] [-server-cpus LIST] [-client-cpus LIST]
             [-gomaxprocs N] [-profiles FILE] [-loads FILE] [-strict] [-pool-size N] [-out DIR]
   bench series -matrix FILE [-out DIR] [-strict] [-check=false] [-dry-run]
@@ -121,7 +121,7 @@ func run(args []string) (int, error) {
 		}
 		return 0, b.Write(*dir)
 	case "server":
-		transport := fs.String("transport", "", "serve with `TRANSPORT`: quic, grpc-h2 or grpc-h2-pool")
+		transport := fs.String("transport", "", "serve with `TRANSPORT`: quic, grpc-h2, grpc-h2-pool, grpc-h3 or connect-h2")
 		addr := fs.String("addr", "", "listen on `HOST:PORT`")
 		certsDir := fs.String("certs", "", "read the certificates from `DIR`")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -137,7 +137,7 @@ func run(args []string) (int, error) {
 		return serve(t, *addr, *certsDir)
 	case "load":
 		var c loadConfig
-		fs.StringVar(&c.transport, "transport", "", "call with `TRANSPORT`: quic, grpc-h2 or grpc-h2-pool")
+		fs.StringVar(&c.transport, "transport", "", "call with `TRANSPORT`: quic, grpc-h2, grpc-h2-pool, grpc-h3 or connect-h2")
 		fs.StringVar(&c.addr, "addr", "", "call the server at `HOST:PORT`")
 		fs.StringVar(&c.certs, "certs", "", "read the certificates from `DIR`")
 		fs.StringVar(&c.profile, "profile", "", "run load profile `NAME`")
@@ -161,7 +161,7 @@ func run(args []string) (int, error) {
 		return load(c)
 	case "run":
 		var c runConfig
-		fs.StringVar(&c.transport, "transport", "", "serve and call with `TRANSPORT`: quic, grpc-h2 or grpc-h2-pool")
+		fs.StringVar(&c.transport, "transport", "", "serve and call with `TRANSPORT`: quic, grpc-h2, grpc-h2-pool, grpc-h3 or connect-h2")
 		fs.StringVar(&c.load, "load", "", "run load profile `NAME`")
 		fs.StringVar(&c.network, "profile", netns.None.Name, "apply network profile `NAME`")
 		fs.StringVar(&c.tcp, "tcp", string(netns.TCPAligned), "TCP setup of the end hosts: aligned or default")
