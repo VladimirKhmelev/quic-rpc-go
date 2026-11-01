@@ -81,6 +81,10 @@ func TestRun(t *testing.T) {
 		t.Run(string(tr), func(t *testing.T) {
 			t.Parallel()
 			dir, m := runBench(t, "-transport", string(tr), "-load", "small", "-server-cpus", serverCPUs, "-client-cpus", clientCPUs)
+			options, err := (common.ClientOptions{}).Resolve(tr)
+			if err != nil || m.ClientOptions != options {
+				t.Fatalf("connection metadata: %+v, want %+v", m.ClientOptions, options)
+			}
 			for _, f := range []string{"calls.csv", "server.log", "client.log", "certs/ca.pem"} {
 				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 					t.Error(err)
@@ -141,6 +145,41 @@ func TestRun(t *testing.T) {
 				t.Errorf("%d calls in calls.csv, %d measured", n, res.Kinds[0].Count)
 			}
 		})
+	}
+}
+
+// A reconnect event creates a whole pool. The command must forward its size
+// and record all ten calls under the new logical pool ID.
+func TestRunPoolReconnect(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "loads.yaml")
+	profile := "loads:\n  - name: reconnect-fast\n    small: {min_size: 100, max_size: 100}\n    reconnect: {every: 200ms, calls: 10}\n"
+	if err := os.WriteFile(file, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir, m := runBench(t, "-transport", "grpc-h2-pool", "-pool-size", "2", "-load", "reconnect-fast", "-loads", file, "-server-cpus", "", "-client-cpus", "")
+	if m.PoolSize != 2 || m.PoolPolicy != "round-robin" {
+		t.Fatalf("pool metadata: %+v", m.ClientOptions)
+	}
+	groups := map[int]int{}
+	connects := map[int]bool{}
+	for _, r := range readCalls(t, dir) {
+		if r.Code != 0 {
+			t.Fatalf("failed pooled call: %+v", r)
+		}
+		switch r.Kind {
+		case loadgen.KindConnect:
+			connects[r.Conn] = true
+		case loadgen.KindSmall:
+			groups[r.Conn]++
+		}
+	}
+	if len(connects) < 4 {
+		t.Fatalf("only %d pool creations", len(connects))
+	}
+	for conn := range connects {
+		if groups[conn] != 10 {
+			t.Fatalf("pool %d has %d calls", conn, groups[conn])
+		}
 	}
 }
 

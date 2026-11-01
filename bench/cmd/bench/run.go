@@ -43,6 +43,7 @@ type runner struct {
 	dir                    string
 	logs                   []*os.File
 	meta                   meta
+	options                common.ClientOptions
 }
 
 // benchRun runs the server and the load generator in the testbed and
@@ -66,6 +67,9 @@ func benchRun(c runConfig) (int, error) {
 func (r *runner) parse() (int, error) {
 	var err error
 	if r.transport, err = common.ParseTransport(r.c.transport); err != nil {
+		return 2, fmt.Errorf("%w: %w", errUsage, err)
+	}
+	if r.options, err = (common.ClientOptions{PoolSize: r.c.poolSize}).Resolve(r.transport); err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
 	if r.tcp, err = netns.ParseTCP(r.c.tcp); err != nil {
@@ -140,7 +144,8 @@ func (r *runner) run(ctx context.Context) (int, error) {
 		}
 	}()
 	r.meta = meta{
-		RunID: filepath.Base(r.dir), Transport: r.transport, Network: r.network, Load: r.load, TCP: r.tcp, Seed: r.c.seed,
+		ClientOptions: r.options,
+		RunID:         filepath.Base(r.dir), Transport: r.transport, Network: r.network, Load: r.load, TCP: r.tcp, Seed: r.c.seed,
 		Warmup: r.c.warmup, Measure: r.c.measure, Timeout: r.c.timeout,
 		Outages: outageStarts(r.network, r.c.warmup, r.c.measure), Build: readBuild(ctx),
 	}
@@ -332,6 +337,9 @@ func (r *runner) runLoad(ctx context.Context, s *netns.Stand, server int, addr, 
 		"load", "-transport", string(r.transport), "-addr", addr, "-certs", certsDir, "-profile", r.load.Name,
 		"-seed", strconv.FormatUint(r.c.seed, 10), "-warmup", r.c.warmup.String(), "-duration", r.c.measure.String(),
 		"-timeout", r.c.timeout.String(), "-out", filepath.Join(r.dir, "calls.csv"),
+	}
+	if r.transport == common.GRPCH2Pool {
+		args = append(args, "-pool-size", strconv.Itoa(r.options.PoolSize))
 	}
 	if r.c.loads != "" {
 		loads, err := filepath.Abs(r.c.loads)
