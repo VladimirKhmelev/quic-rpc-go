@@ -34,7 +34,8 @@ PLOTS_RUN := PYTHONPATH=analysis/plots $(VENV)/bin/python
 PROTOC_GEN_GO      := $(CURDIR)/bin/protoc-gen-go
 PROTOC_GEN_GO_GRPC := $(CURDIR)/bin/protoc-gen-go-grpc
 PROTOC_GEN_RPCQUIC := $(CURDIR)/bin/protoc-gen-rpcquic
-GENERATORS         := $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC) $(PROTOC_GEN_RPCQUIC)
+PROTOC_GEN_CONNECT := $(CURDIR)/bin/protoc-gen-connect-go
+GENERATORS         := $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC) $(PROTOC_GEN_RPCQUIC) $(PROTOC_GEN_CONNECT)
 # Relative to rpc/.
 RPC_PROTOS := internal/frame/framepb/frame.proto
 # Relative to proto/; the code goes to internal/gen of the root module.
@@ -120,13 +121,16 @@ host-restore:
 	testbed/env/host-setup.sh --restore
 
 # Generators: protoc-gen-go from the protobuf version pinned in rpc/go.mod,
-# protoc-gen-go-grpc from the tool directive of go.mod, protoc-gen-rpcquic
+# protoc-gen-go-grpc and protoc-gen-connect-go from tool directives of go.mod, protoc-gen-rpcquic
 # from this repository.
 $(PROTOC_GEN_GO): rpc/go.mod rpc/go.sum
 	cd rpc && go build -o $@ google.golang.org/protobuf/cmd/protoc-gen-go
 
 $(PROTOC_GEN_GO_GRPC): go.mod go.sum
 	go build -o $@ google.golang.org/grpc/cmd/protoc-gen-go-grpc
+
+$(PROTOC_GEN_CONNECT): go.mod go.sum
+	go build -o $@ connectrpc.com/connect/v2/cmd/protoc-gen-connect-go
 
 $(PROTOC_GEN_RPCQUIC): rpc/go.mod rpc/go.sum $(wildcard rpc/cmd/protoc-gen-rpcquic/*.go)
 	cd rpc && go build -o $@ ./cmd/protoc-gen-rpcquic
@@ -137,6 +141,7 @@ protoc_root = protoc -I proto \
 	--plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=$(1) --go_opt=module=$(ROOT_MODULE) \
 	--plugin=protoc-gen-go-grpc=$(PROTOC_GEN_GO_GRPC) --go-grpc_out=$(1) --go-grpc_opt=module=$(ROOT_MODULE) \
 	--plugin=protoc-gen-rpcquic=$(PROTOC_GEN_RPCQUIC) --rpcquic_out=$(1) --rpcquic_opt=module=$(ROOT_MODULE) \
+	--plugin=protoc-gen-connect-go=$(PROTOC_GEN_CONNECT) --connect-go_out=$(1) --connect-go_opt=module=$(ROOT_MODULE) \
 	$(ROOT_PROTOS)
 
 proto: $(GENERATORS)
