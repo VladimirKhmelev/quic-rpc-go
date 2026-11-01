@@ -17,15 +17,43 @@
 package h2
 
 import (
+	"context"
 	"crypto/tls"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 // NewServer returns a gRPC server that serves TLS with tlsConf.
 func NewServer(tlsConf *tls.Config, opts ...grpc.ServerOption) *grpc.Server {
 	return grpc.NewServer(append([]grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsConf))}, opts...)...)
+}
+
+// Connect starts dialing and waits for TCP, TLS and HTTP/2 settings. As with
+// ordinary RPCs, an unavailable connection fails without waiting for recovery.
+func Connect(ctx context.Context, cc *grpc.ClientConn) error {
+	if err := ctx.Err(); err != nil {
+		return status.FromContextError(err).Err()
+	}
+	cc.Connect()
+	for {
+		if err := ctx.Err(); err != nil {
+			return status.FromContextError(err).Err()
+		}
+		switch s := cc.GetState(); s {
+		case connectivity.Ready:
+			return nil
+		case connectivity.TransientFailure, connectivity.Shutdown:
+			return status.Error(codes.Unavailable, "connection "+s.String())
+		default:
+			if !cc.WaitForStateChange(ctx, s) {
+				return status.FromContextError(ctx.Err()).Err()
+			}
+		}
+	}
 }
 
 // Dial returns a client connection to the server at addr ("host:port"),
