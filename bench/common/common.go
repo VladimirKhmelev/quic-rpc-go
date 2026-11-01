@@ -4,7 +4,7 @@
 // scenario runs on any transport unchanged.
 //
 // Transports: quic-rpc-go over QUIC and grpc-go over HTTP/2 with one
-// connection. Both use the TLS configurations they are given; the
+// connection or a pool. All use the TLS configurations they are given; the
 // benchmarks give them the same ones (internal/certs).
 package common
 
@@ -14,6 +14,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
+
+	"github.com/VladimirKhmelev/quic-rpc-go/bench/baseline/h2pool"
 )
 
 // Transport names a variant of the comparison.
@@ -25,10 +28,12 @@ const (
 	QUIC Transport = "quic"
 	// GRPCH2 is grpc-go over HTTP/2, one TCP connection per client.
 	GRPCH2 Transport = "grpc-h2"
+	// GRPCH2Pool is grpc-go over a round-robin pool of TCP connections.
+	GRPCH2Pool Transport = "grpc-h2-pool"
 )
 
 // Transports lists every transport.
-var Transports = []Transport{QUIC, GRPCH2}
+var Transports = []Transport{QUIC, GRPCH2, GRPCH2Pool}
 
 // ParseTransport returns the transport named s.
 func ParseTransport(s string) (Transport, error) {
@@ -37,22 +42,57 @@ func ParseTransport(s string) (Transport, error) {
 			return t, nil
 		}
 	}
-	return "", fmt.Errorf("transport %q: want %s or %s", s, QUIC, GRPCH2)
+	names := make([]string, len(Transports))
+	for i, t := range Transports {
+		names[i] = string(t)
+	}
+	return "", fmt.Errorf("transport %q: want %s", s, strings.Join(names, ", "))
 }
 
-// Client makes calls to one server over one connection. It is safe for
+// ClientOptions records the effective connection setup. Zero values select
+// four round-robin connections for grpc-h2-pool, and one connection otherwise.
+type ClientOptions struct {
+	PoolSize   int    `json:"pool_size" yaml:"pool_size"`
+	PoolPolicy string `json:"pool_policy" yaml:"pool_policy"`
+}
+
+// Resolve validates options and fills defaults without changing the receiver.
+func (o ClientOptions) Resolve(t Transport) (ClientOptions, error) {
+	if _, err := ParseTransport(string(t)); err != nil {
+		return ClientOptions{}, err
+	}
+	size, policy := 1, "single"
+	if t == GRPCH2Pool {
+		size, policy = h2pool.DefaultSize, "round-robin"
+	}
+	if o.PoolSize == 0 {
+		o.PoolSize = size
+	}
+	if o.PoolSize < 1 || (t != GRPCH2Pool && o.PoolSize != 1) {
+		return ClientOptions{}, fmt.Errorf("%s: invalid pool_size %d", t, o.PoolSize)
+	}
+	if o.PoolPolicy == "" {
+		o.PoolPolicy = policy
+	}
+	if o.PoolPolicy != policy {
+		return ClientOptions{}, fmt.Errorf("%s: pool_policy must be %q", t, policy)
+	}
+	return o, nil
+}
+
+// Client makes calls to one server over one connection or a pool. It is safe for
 // concurrent use.
 type Client interface {
 	// Connect sets up the connection: for QUIC its handshake, for gRPC
-	// the TCP and TLS handshakes and the HTTP/2 settings. Calls set it up
-	// by themselves too; Connect is there to time the setup (EXP-6).
+	// the TCP and TLS handshakes and the HTTP/2 settings of every pool
+	// member. Calls set it up by themselves too; Connect is there to time the setup (EXP-6).
 	Connect(ctx context.Context) error
 	// Call sends payload and asks for a response of respSize bytes; it
 	// returns the size of the payload received.
 	Call(ctx context.Context, payload []byte, respSize int) (int, error)
 	// Echo opens a stream on which the server sends back every message.
 	Echo(ctx context.Context) (EchoStream, error)
-	// Close closes the connection; calls in flight fail.
+	// Close closes all client connections; calls in flight fail.
 	Close() error
 }
 
@@ -75,13 +115,27 @@ type Server interface {
 }
 
 // Dial returns a client of transport t for the server at addr ("host:port").
-// It does not connect yet.
-func Dial(t Transport, addr string, tlsConf *tls.Config) (Client, error) {
+// It does not connect yet. Options select the pool size; omission uses
+// DefaultSize for grpc-h2-pool and one connection for other transports.
+func Dial(t Transport, addr string, tlsConf *tls.Config, options ...ClientOptions) (Client, error) {
+	var o ClientOptions
+	if len(options) > 1 {
+		return nil, errors.New("common: want at most one ClientOptions")
+	}
+	if len(options) == 1 {
+		o = options[0]
+	}
+	o, err := o.Resolve(t)
+	if err != nil {
+		return nil, err
+	}
 	switch t {
 	case QUIC:
 		return dialQUIC(addr, tlsConf), nil
 	case GRPCH2:
 		return dialGRPC(addr, tlsConf)
+	case GRPCH2Pool:
+		return dialGRPCPool(addr, tlsConf, o.PoolSize)
 	}
 	return nil, fmt.Errorf("common: unknown transport %q", t)
 }
@@ -91,7 +145,7 @@ func Listen(t Transport, addr string, tlsConf *tls.Config) (Server, error) {
 	switch t {
 	case QUIC:
 		return listenQUIC(addr, tlsConf)
-	case GRPCH2:
+	case GRPCH2, GRPCH2Pool:
 		return listenGRPC(addr, tlsConf)
 	}
 	return nil, fmt.Errorf("common: unknown transport %q", t)

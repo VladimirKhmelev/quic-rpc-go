@@ -9,17 +9,21 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/status"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/bench/baseline/h2"
+	"github.com/VladimirKhmelev/quic-rpc-go/bench/baseline/h2pool"
 	benchv1 "github.com/VladimirKhmelev/quic-rpc-go/internal/gen/bench/v1"
 )
 
-// grpcClient is a client of grpc-go over HTTP/2, on one connection.
+// grpcClient is a client of grpc-go over HTTP/2, on one connection or a pool.
 type grpcClient struct {
-	cc    *grpc.ClientConn
-	bench benchv1.BenchClient
+	cc interface {
+		grpc.ClientConnInterface
+		Close() error
+	}
+	bench   benchv1.BenchClient
+	connect func(context.Context) error
 }
 
 func dialGRPC(addr string, tlsConf *tls.Config) (*grpcClient, error) {
@@ -27,25 +31,22 @@ func dialGRPC(addr string, tlsConf *tls.Config) (*grpcClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &grpcClient{cc: cc, bench: benchv1.NewBenchClient(cc)}, nil
+	return &grpcClient{cc: cc, bench: benchv1.NewBenchClient(cc), connect: func(ctx context.Context) error { return h2.Connect(ctx, cc) }}, nil
+}
+
+func dialGRPCPool(addr string, tlsConf *tls.Config, size int) (*grpcClient, error) {
+	p, err := h2pool.Dial(addr, tlsConf, size)
+	if err != nil {
+		return nil, err
+	}
+	return &grpcClient{cc: p, bench: benchv1.NewBenchClient(p), connect: p.Connect}, nil
 }
 
 // Connect waits until grpc-go reports the connection ready: the TCP and
-// TLS handshakes are done and the server's HTTP/2 settings have arrived.
+// TLS handshakes are done and the server's HTTP/2 settings have arrived
+// on every member. Pool members connect in parallel.
 func (c *grpcClient) Connect(ctx context.Context) error {
-	c.cc.Connect()
-	for {
-		switch s := c.cc.GetState(); s {
-		case connectivity.Ready:
-			return nil
-		case connectivity.TransientFailure, connectivity.Shutdown:
-			return &StatusError{Code: uint32(codes.Unavailable), Message: "connection " + s.String()}
-		default:
-			if !c.cc.WaitForStateChange(ctx, s) {
-				return grpcError(status.FromContextError(ctx.Err()).Err())
-			}
-		}
-	}
+	return grpcError(c.connect(ctx))
 }
 
 func (c *grpcClient) Call(ctx context.Context, payload []byte, respSize int) (int, error) {
