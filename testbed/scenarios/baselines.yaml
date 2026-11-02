@@ -1,0 +1,16 @@
+# GEN-8: all baseline implementations, with the same gRPC wire protocol for
+# the HTTP transports. Preview with bench series -matrix FILE -dry-run.
+name: baselines
+seed: 1
+repeats: 3
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+  - {name: grpc-h2-pool-4, transport: grpc-h2-pool, tcp: aligned, pool_size: 4}
+  - {name: grpc-h3, transport: grpc-h3, tcp: aligned}
+  - {name: connect-h2, transport: connect-h2, tcp: aligned}
+networks: [base, loss-2]
+loads: [small, small-heavy, bidi, reconnect]
+drift: base

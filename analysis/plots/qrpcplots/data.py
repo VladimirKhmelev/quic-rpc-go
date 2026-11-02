@@ -96,6 +96,10 @@ def run_row(planned: dict, meta: dict) -> dict:
 
     results = meta["results"]
     tls = meta["tls"][0] if meta["tls"] else {}
+    alpn = tls.get("alpn", "")
+    expected_alpn = {"quic": "qrpc/2", "grpc-h2": "h2", "grpc-h2-pool": "h2", "grpc-h3": "h3", "connect-h2": "h2"}
+    if alpn and transport in expected_alpn and alpn != expected_alpn[transport]:
+        raise ValueError(f"{planned['id']}: negotiated ALPN {alpn!r} differs from transport {transport}")
     return {
         "run_id": planned["id"],
         "variant": planned["variant"],
@@ -127,6 +131,7 @@ def run_row(planned: dict, meta: dict) -> dict:
         "in_flight_mean": results["in_flight_mean"],
         "in_flight_max": results["in_flight_max"],
         "tls": " / ".join(tls.get(k, "") for k in ("version", "cipher_suite", "group")),
+        "alpn": alpn,
         "problems": len(meta["problems"] or []),
         "commit": meta["build"].get("commit", ""),
         "dirty": meta["build"].get("dirty", False),

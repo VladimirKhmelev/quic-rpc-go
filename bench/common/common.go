@@ -3,9 +3,10 @@
 // that answers them, both over the service of proto/bench/v1, so that one
 // scenario runs on any transport unchanged.
 //
-// Transports: quic-rpc-go over QUIC and grpc-go over HTTP/2 with one
-// connection or a pool. All use the TLS configurations they are given; the
-// benchmarks give them the same ones (internal/certs).
+// Transports: quic-rpc-go over QUIC, grpc-go over HTTP/2 with one connection
+// or a pool, and connect-go's gRPC over HTTP/2 and HTTP/3. All use the TLS
+// configurations they are given; the benchmarks give them the same ones
+// (internal/certs).
 package common
 
 import (
@@ -30,10 +31,14 @@ const (
 	GRPCH2 Transport = "grpc-h2"
 	// GRPCH2Pool is grpc-go over a round-robin pool of TCP connections.
 	GRPCH2Pool Transport = "grpc-h2-pool"
+	// GRPCH3 is connect-go's gRPC protocol over one HTTP/3 connection.
+	GRPCH3 Transport = "grpc-h3"
+	// ConnectH2 controls for the connect-go implementation over HTTP/2.
+	ConnectH2 Transport = "connect-h2"
 )
 
 // Transports lists every transport.
-var Transports = []Transport{QUIC, GRPCH2, GRPCH2Pool}
+var Transports = []Transport{QUIC, GRPCH2, GRPCH2Pool, GRPCH3, ConnectH2}
 
 // ParseTransport returns the transport named s.
 func ParseTransport(s string) (Transport, error) {
@@ -83,9 +88,9 @@ func (o ClientOptions) Resolve(t Transport) (ClientOptions, error) {
 // Client makes calls to one server over one connection or a pool. It is safe for
 // concurrent use.
 type Client interface {
-	// Connect sets up the connection: for QUIC its handshake, for gRPC
-	// the TCP and TLS handshakes and the HTTP/2 settings of every pool
-	// member. Calls set it up by themselves too; Connect is there to time the setup (EXP-6).
+	// Connect waits for handshakes and, for HTTP, peer settings. For a pool
+	// it waits for every member. Calls connect by themselves too;
+	// Connect is there to time setup (EXP-6).
 	Connect(ctx context.Context) error
 	// Call sends payload and asks for a response of respSize bytes; it
 	// returns the size of the payload received.
@@ -136,6 +141,8 @@ func Dial(t Transport, addr string, tlsConf *tls.Config, options ...ClientOption
 		return dialGRPC(addr, tlsConf)
 	case GRPCH2Pool:
 		return dialGRPCPool(addr, tlsConf, o.PoolSize)
+	case GRPCH3, ConnectH2:
+		return dialConnect(t, addr, tlsConf)
 	}
 	return nil, fmt.Errorf("common: unknown transport %q", t)
 }
@@ -147,6 +154,8 @@ func Listen(t Transport, addr string, tlsConf *tls.Config) (Server, error) {
 		return listenQUIC(addr, tlsConf)
 	case GRPCH2, GRPCH2Pool:
 		return listenGRPC(addr, tlsConf)
+	case GRPCH3, ConnectH2:
+		return listenConnect(t, addr, tlsConf)
 	}
 	return nil, fmt.Errorf("common: unknown transport %q", t)
 }

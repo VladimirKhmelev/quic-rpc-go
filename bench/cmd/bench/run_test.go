@@ -119,6 +119,16 @@ func TestRun(t *testing.T) {
 			if len(m.TLS) != 1 || m.TLS[0].Version != "TLS 1.3" {
 				t.Errorf("TLS %+v", m.TLS)
 			}
+			wantALPN := "h2"
+			switch tr {
+			case common.QUIC:
+				wantALPN = "qrpc/2"
+			case common.GRPCH3:
+				wantALPN = "h3"
+			}
+			if m.TLS[0].ALPN != wantALPN {
+				t.Fatalf("ALPN %s, want %s", m.TLS[0].ALPN, wantALPN)
+			}
 			// The window is the measurement, 1 s after 200 ms of warm-up. The
 			// duration is by the monotonic clock, the times by the wall clock.
 			if w := m.Window; (w.Duration-time.Second).Abs() > 100*time.Millisecond ||

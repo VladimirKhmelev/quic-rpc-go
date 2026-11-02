@@ -37,6 +37,8 @@ type env struct {
 	curve       atomic.Uint32
 	handshakes  atomic.Int32
 	connections int
+	wantALPN    string
+	alpn        atomic.Value
 }
 
 // forEach runs fn on a server and a client of every transport over
@@ -49,6 +51,14 @@ func forEach(t *testing.T, fn func(t *testing.T, e *env)) {
 				t.Fatal(err)
 			}
 			e := &env{}
+			switch tr {
+			case common.QUIC:
+				e.wantALPN = "qrpc/2"
+			case common.GRPCH3:
+				e.wantALPN = "h3"
+			default:
+				e.wantALPN = "h2"
+			}
 			options, err := (common.ClientOptions{}).Resolve(tr)
 			if err != nil {
 				t.Fatal(err)
@@ -64,6 +74,7 @@ func forEach(t *testing.T, fn func(t *testing.T, e *env)) {
 			clientTLS.VerifyConnection = func(cs tls.ConnectionState) error {
 				e.curve.Store(uint32(cs.CurveID))
 				e.handshakes.Add(1)
+				e.alpn.Store(cs.NegotiatedProtocol)
 				return nil
 			}
 			if e.client, err = common.Dial(tr, srv.Addr().String(), clientTLS); err != nil {
@@ -88,6 +99,9 @@ func TestConnect(t *testing.T) {
 		}
 		if got := tls.CurveID(e.curve.Load()); got != tls.X25519MLKEM768 {
 			t.Errorf("key exchange %v, want %v", got, tls.X25519MLKEM768)
+		}
+		if e.alpn.Load() != e.wantALPN {
+			t.Fatalf("ALPN %v, want %s", e.alpn.Load(), e.wantALPN)
 		}
 		if n, err := e.client.Call(ctx(t), nil, 10); err != nil || n != 10 {
 			t.Fatalf("call after Connect: %d, %v", n, err)

@@ -364,9 +364,8 @@ func normalize(o outcome) outcome {
 	return o
 }
 
-// TestDifferential runs every case on grpc-go over HTTP/2 and on
-// quic-rpc-go over QUIC and over mem, and requires the same outcome
-// (TST-5, the first gate of phase 1).
+// TestDifferential compares all stacks to grpc-go over HTTP/2 (TST-5).
+// Known connect-go differences for malformed calls are checked explicitly.
 func TestDifferential(t *testing.T) {
 	all := stacks(t)
 	ref := all[0]
@@ -378,11 +377,15 @@ func TestDifferential(t *testing.T) {
 			}
 			for _, s := range all[1:] {
 				got := tc.run(t, s.client)
-				if tc.codeOnly {
-					got.Message, want.Message = "", ""
+				expected := want
+				if _, ok := s.client.(connectClient); ok {
+					expected = connectExpected(tc.name, expected)
 				}
-				if !reflect.DeepEqual(got, want) {
-					t.Errorf("%s differs from %s:\n got: %v\nwant: %v", s.name, ref.name, got, want)
+				if tc.codeOnly {
+					got.Message, expected.Message = "", ""
+				}
+				if !reflect.DeepEqual(got, expected) {
+					t.Errorf("%s differs from %s:\n got: %v\nwant: %v", s.name, ref.name, got, expected)
 				}
 			}
 		})

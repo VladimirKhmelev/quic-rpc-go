@@ -22,6 +22,7 @@ type tlsInfo struct {
 	Version     string `json:"version"`
 	CipherSuite string `json:"cipher_suite"`
 	Group       string `json:"group"`
+	ALPN        string `json:"alpn,omitempty"`
 }
 
 // events prints events, each TLS setup once.
@@ -39,7 +40,7 @@ func (e *events) phase(p loadgen.Phase) { e.print(event{Phase: p}) }
 
 // verify is a tls.Config.VerifyConnection that prints the TLS setup.
 func (e *events) verify(cs tls.ConnectionState) error {
-	info := tlsInfo{Version: tls.VersionName(cs.Version), CipherSuite: tls.CipherSuiteName(cs.CipherSuite), Group: cs.CurveID.String()}
+	info := tlsInfo{Version: tls.VersionName(cs.Version), CipherSuite: tls.CipherSuiteName(cs.CipherSuite), Group: cs.CurveID.String(), ALPN: cs.NegotiatedProtocol}
 	e.mu.Lock()
 	seen := e.seen[info]
 	e.seen[info] = true

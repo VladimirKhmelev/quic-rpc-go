@@ -39,7 +39,7 @@
 
 | Файл | Строка | Что в ней |
 | --- | --- | --- |
-| `runs.csv` | прогон | из `series.json`: `run_id`, `variant`, `transport`, `tcp`, `pool_size`, `pool_policy`, `network`, `load`, `repeat`, `seed`, `role`; сеть: `rtt_ms`, `jitter_ms`, `loss_pct`, `loss_burst`, `reorder_pct`, `rate_bps`, `queue_bdp`; из `meta.json`: `warmup_ns`, `measure_ns`, `window_ns`, CPU процессов `server_cpu_ns` и `client_cpu_ns` (user + system), занятость их ядер `server_cores_busy_ns` и `client_cores_busy_ns` (всё, кроме idle и iowait), `sent_bytes_per_s`, `received_bytes_per_s`, `in_flight_mean`, `in_flight_max`, `tls`, `problems` (число отличий машины от NET-5), `commit`, `dirty` |
+| `runs.csv` | прогон | из `series.json`: `run_id`, `variant`, `transport`, `tcp`, `pool_size`, `pool_policy`, `network`, `load`, `repeat`, `seed`, `role`; сеть: `rtt_ms`, `jitter_ms`, `loss_pct`, `loss_burst`, `reorder_pct`, `rate_bps`, `queue_bdp`; из `meta.json`: `warmup_ns`, `measure_ns`, `window_ns`, CPU процессов `server_cpu_ns` и `client_cpu_ns` (user + system), занятость их ядер `server_cores_busy_ns` и `client_cores_busy_ns` (всё, кроме idle и iowait), `sent_bytes_per_s`, `received_bytes_per_s`, `in_flight_mean`, `in_flight_max`, `tls`, `alpn` (согласованный протокол: `qrpc/2`, `h2`, `h3`; пусто в старых данных), `problems` (число отличий машины от NET-5), `commit`, `dirty` |
 | `calls.parquet` | вызов | колонки `calls.csv` и `run_id`; сжатие zstd |
 | `summary.csv` | прогон и вид вызова | колонки `runs.csv` и `kind`, `count`, `errors`, `error_pct`, `p50`, `p95`, `p99` (мс) за окно измерения, `growth` — медианная задержка последней трети измерения против первой, `overloaded` — перегружен ли прогон ([методика](../docs/methodology.md#анализ-exp-7-anl-1anl-3)) |
 | `cells.csv` | ячейка | `network`, `load`, `kind`, `variant`, `runs`, `error_pct` (средняя по прогонам), `overloaded_runs` (перегруженных прогонов), `growth` (медиана по прогонам), `goodput_mbps` (медиана по прогонам: полезные данные отвеченных вызовов всех видов в обе стороны, Мбит/с), `overloaded` (перегружено больше половины прогонов) и по каждому перцентилю медиана по прогонам и её интервал: `p99`, `p99_lo`, `p99_hi` и т. д. |
@@ -78,7 +78,7 @@ make plots ANALYSIS=data/pilot
 Подробности:
 
 - Задержка считается от запланированного, а не от фактического момента отправки. Если генератор или транспорт задержали отправку, это входит в задержку.
-- `connect`: задержка — время установки соединения (EXP-6): для QUIC handshake, для gRPC TCP, TLS и обмен настройками HTTP/2. Для `grpc-h2-pool` это готовность всех N соединений, устанавливаемых параллельно. Вызовы этого клиента запланированы на тот же момент и отправляются после установки, поэтому их задержка включает установку соединения.
+- `connect`: задержка — время установки соединения (EXP-6): для QUIC handshake, для HTTP/2 TCP, TLS и настройки HTTP/2; для HTTP/3 полный QUIC handshake и настройки HTTP/3. Для `grpc-h2-pool` это готовность всех N соединений, устанавливаемых параллельно. Вызовы этого клиента запланированы на тот же момент и отправляются после установки, поэтому их задержка включает установку соединения.
 - `echo`: задержка — от запланированной отправки сообщения до возврата его копии. Сообщение, которое не вернулось за тайм-аут, записано с кодом 4 и задержкой, равной тайм-ауту.
 - Вызов, не получивший ответа до дедлайна (10 с от запланированного момента), записан с кодом 4. Вызовы, которые прерванный прогон не успел отправить, записаны с кодом 1.
 - В режиме closed-loop (`bench load -closed N`) `scheduled_ns` — фактический момент отправки: расписания там нет.
@@ -90,7 +90,7 @@ make plots ANALYSIS=data/pilot
 | Поле | Смысл |
 | --- | --- |
 | `run_id` | имя каталога прогона |
-| `transport` | `quic`, `grpc-h2` или `grpc-h2-pool` |
+| `transport` | `quic`, `grpc-h2`, `grpc-h2-pool`, `grpc-h3` или `connect-h2` |
 | `pool_size`, `pool_policy` | фактическое число соединений и распределение RPC: для пула N и `round-robin`, для остальных транспортов 1 и `single` |
 | `network` | профиль сети: `name`, `description`, `rtt_ns`, `jitter_ns`, `loss_pct` (потери в процентах), `loss_burst`, `reorder_pct`, `rate_bps` (бит/с, 0 — без ограничения), `queue_bdp`, `outage` (`duration_ns`, `every_ns`) |
 | `load` | профиль нагрузки: `name`, `description` и те части, что есть: `small` (`rate` в секунду, `min_size`, `max_size` в байтах), `heavy` (`size`, `every_ns`), `echo` (`rate`, `size`), `reconnect` (`every_ns`, `calls`) |
@@ -102,7 +102,7 @@ make plots ANALYSIS=data/pilot
 | `problems` | отличия машины от NET-5; на настроенной машине пусто |
 | `server`, `client` | `cpus` — заданные ядра (пусто — без закрепления), `cpus_allowed` — ядра, на которых процессу разрешено работать, `env` — переменные `GOMAXPROCS`, `GOGC`, `GOMEMLIMIT`, `GODEBUG` и `QUIC_GO_*` процесса, `cpu` — его время `user_ns` и `system_ns` за окно |
 | `orchestrator` | `cpus_allowed` оркестратора |
-| `tls` | согласованные настройки TLS: `version`, `cipher_suite`, `group`; ожидается одна запись |
+| `tls` | согласованные настройки TLS: `version`, `cipher_suite`, `group`, `alpn`; ожидается одна запись. В старых данных `alpn` отсутствует |
 | `window` | окно измерения глазами оркестратора: `start`, `measure`, `end` — когда генератор сообщил о начале прогрева, начале и конце измерения; `duration_ns` — время между замерами CPU |
 | `cores` | по каждому логическому CPU машины время за окно: `id`, `user_ns`, `nice_ns`, `system_ns`, `idle_ns`, `iowait_ns`, `irq_ns`, `softirq_ns`, `steal_ns` |
 | `results` | сводка измерения: `kinds` (`kind`, `count`, `errors`, `p50_ns`, `p99_ns`), `sent_bytes_per_s` и `received_bytes_per_s`, `in_flight_mean` и `in_flight_max` |
@@ -113,3 +113,5 @@ make plots ANALYSIS=data/pilot
 - `results` считаются по строкам `calls.csv` с `phase` = `measure`. Goodput — байты payload успешных вызовов и сообщений, отправленные и полученные, делённые на длительность измерения. Вызов в полёте — от запланированного момента до ответа или ошибки; считается только время внутри окна измерения, без установки соединений.
 
 Поля `pool_size` и `pool_policy` в старых сериях и `runs.csv` могут отсутствовать: для исторических `quic` и `grpc-h2` это 1 и `single`. Для `grpc-h2-pool` анализ требует явные параметры и их совпадение между планом и `meta.json`. Одно имя `variant` не может объединять разные N или политики. Размер пула и политика входят в проверку постановки при возобновлении серии.
+
+Для `grpc-h3` и `connect-h2` размер пула равен 1, политика — `single`. Параметр `alpn` из TLS сохраняется в новых `runs.csv`; при его наличии анализ проверяет соответствие транспорту, чтобы не принять HTTP/2 за HTTP/3. Версии connect-go и QPACK находятся в `build.modules`.

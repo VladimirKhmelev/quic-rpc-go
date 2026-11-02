@@ -74,7 +74,7 @@ type client interface {
 	raw(ctx context.Context, method string, reqs []*difftestv1.Request) outcome
 }
 
-// clientStream is the client side of Bidi on both stacks.
+// clientStream is the client side of Bidi on every stack.
 type clientStream interface {
 	Send(*difftestv1.Request) error
 	Recv() (*difftestv1.Response, error)
@@ -379,6 +379,8 @@ func stacks(t *testing.T) []stack {
 		{"rpc-mem", serveQUIC(t, ml, ml)},
 		{"bridge-quic", serveBridge(t, bql, &rpcquic.Dialer{Addr: bql.Addr().String(), TLSConfig: pair.Client})},
 		{"bridge-mem", serveBridge(t, bml, bml)},
+		{"connect-h2", serveConnect(t, pair.Server, pair.Client, 2)},
+		{"grpc-h3", serveConnect(t, pair.Server, pair.Client, 3)},
 	}
 }
 
