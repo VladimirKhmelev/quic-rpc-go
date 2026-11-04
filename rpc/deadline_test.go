@@ -250,13 +250,13 @@ func TestNoMessageAfterCancel(t *testing.T) {
 	})
 }
 
-// TestDeadlineAndCancelRealTime repeats the deadline and cancellation
-// scenarios above with real time, so they also run on QUIC.
+// TestDeadlineAndCancelRealTime repeats the virtual-time mem cases on QUIC,
+// whose network timers require real time.
 func TestDeadlineAndCancelRealTime(t *testing.T) {
-	forEachTransport(t, func(t *testing.T, f transporttest.Factory) {
+	t.Run("quic", func(t *testing.T) {
 		started := make(chan struct{}, 1)
 		handlerDone := make(chan error, 1)
-		e := newEnv(t, f, &testServer{unary: func(ctx context.Context, _ *msg) (*msg, error) {
+		e := newEnv(t, transporttest.QUIC, &testServer{unary: func(ctx context.Context, _ *msg) (*msg, error) {
 			started <- struct{}{}
 			<-ctx.Done()
 			handlerDone <- ctx.Err()

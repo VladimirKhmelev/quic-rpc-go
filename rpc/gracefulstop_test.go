@@ -281,9 +281,11 @@ func TestGracefulStopRefuses(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				var handled atomic.Int32
+				started := make(chan struct{}, 1)
 				release := make(chan struct{})
 				impl := &testServer{unary: func(_ context.Context, in *msg) (*msg, error) {
 					handled.Add(1)
+					started <- struct{}{}
 					<-release
 					return in, nil
 				}}
@@ -291,9 +293,7 @@ func TestGracefulStopRefuses(t *testing.T) {
 				s := startStoppable(t, l, d, impl, func(c transport.Conn) transport.Conn { return &deafConn{c} })
 				ctx := transporttest.Context(t)
 				first := s.call(ctx)
-				for handled.Load() == 0 {
-					time.Sleep(time.Millisecond)
-				}
+				<-started
 				took := s.gracefulStop(ctx)
 				// Serve returns once the listener is closed, after the
 				// connection was marked as going away.
@@ -526,12 +526,12 @@ func TestGoAwayProtocolError(t *testing.T) {
 	})
 }
 
-// TestGracefulStopRealTime repeats TestGracefulStop in real time, so that it
-// also runs on QUIC.
+// TestGracefulStopRealTime repeats the virtual-time mem case on QUIC,
+// whose network timers require real time.
 func TestGracefulStopRealTime(t *testing.T) {
-	forEachTransport(t, func(t *testing.T, f transporttest.Factory) {
+	t.Run("quic", func(t *testing.T) {
 		started := make(chan struct{}, 1)
-		s := newStoppable(t, f, &testServer{unary: func(_ context.Context, in *msg) (*msg, error) {
+		s := newStoppable(t, transporttest.QUIC, &testServer{unary: func(_ context.Context, in *msg) (*msg, error) {
 			started <- struct{}{}
 			time.Sleep(200 * time.Millisecond)
 			return in, nil
