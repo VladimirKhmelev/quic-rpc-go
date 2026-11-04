@@ -24,7 +24,7 @@ func factory(opts mem.Options) transporttest.Factory {
 }
 
 func TestConformance(t *testing.T) {
-	transporttest.Run(t, factory(mem.Options{}))
+	transporttest.RunSynctest(t, factory(mem.Options{}))
 }
 
 func canceledContext() context.Context {

@@ -3,22 +3,26 @@ package transporttest
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 // PacketConn queues outgoing datagrams with an independent delay per packet.
 // Incoming packets are untouched, so Delay is the added round-trip time. It
-// can also hold writes to keep a real QUIC handshake from finishing in tests.
+// can also drop datagrams or hold writes to keep a QUIC handshake from finishing.
 type PacketConn struct {
 	net.PacketConn
-	Delay   time.Duration // set before use
-	mu      sync.Mutex
-	gate    *packetGate
-	queue   chan queuedPacket
-	done    chan struct{}
-	stopped chan struct{}
-	once    sync.Once
+	Delay     time.Duration // set before use
+	dropEvery atomic.Uint64
+	writes    atomic.Uint64
+	dropped   atomic.Uint64
+	mu        sync.Mutex
+	gate      *packetGate
+	queue     chan queuedPacket
+	done      chan struct{}
+	stopped   chan struct{}
+	once      sync.Once
 }
 
 type packetGate struct {
@@ -67,6 +71,15 @@ func (c *PacketConn) HoldWrites() (ready <-chan struct{}, release func()) {
 
 // WriteTo copies a packet into the queue; run applies its gate and delay.
 func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	select {
+	case <-c.done:
+		return 0, net.ErrClosed
+	default:
+	}
+	if n, every := c.writes.Add(1), c.dropEvery.Load(); every > 0 && n%every == 0 {
+		c.dropped.Add(1)
+		return len(p), nil
+	}
 	c.mu.Lock()
 	g := c.gate
 	c.mu.Unlock()
@@ -78,6 +91,13 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 		return len(p), nil
 	}
 }
+
+// Dropped reports the number of datagrams discarded by the loss policy.
+func (c *PacketConn) Dropped() uint64 { return c.dropped.Load() }
+
+// SetDropEvery drops every Nth outgoing datagram; zero disables loss.
+// Retransmissions are subject to the same policy. It is safe during use.
+func (c *PacketConn) SetDropEvery(n uint64) { c.dropEvery.Store(n) }
 
 func (c *PacketConn) run() {
 	defer close(c.stopped)

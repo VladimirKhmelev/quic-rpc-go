@@ -1,16 +1,15 @@
 # Приёмка фазы 3
 
-Аудит Q-01 выполнен 4 ноября 2026 года на исходниках
-`7e088d0969994d261d5b39258fc8fa1735520fc9` (PR #31). Рабочие изменения
-документации не меняют проверенную реализацию RPC.
+Проверены исходники этого изменения поверх `8bff066` (PR #32), 4 ноября
+2026 года. Первичный аудит Q-01 выявил пробелы; Q-09/Q-10 устраняют их кодом
+и regression-тестами.
 
-**Итог: аудит завершён, фаза 3 пока не принята полностью.**
-Обязательные возможности реализованы, существующие автоматические проверки
-прошли, но найден дефект закрытия клиента во время подключения. Кроме того,
-для RPC-5 и RPC-9 отсутствуют отдельные проверки, прямо указанные в исходных
-критериях. Исправление обозначено Q-10, дополнение приёмки — Q-09;
-оставшиеся работы перечислены в конце этого документа.
-Удалённый статус GitHub CI в этом аудите подтвердить не удалось.
+**Реализация и локальная приёмка фазы 3 готовы.** Исправлено закрытие клиента
+во время подключения; добавлены прямые проверки потоков, расходящихся часов,
+backpressure с бюджетом памяти и восстановления под потерями. Локальный набор
+проверок CI прошёл. Удалённый CI нового изменения должен быть подтверждён
+после создания коммита и push пользователем; до этого формальные ворота CI
+не считаются пройденными.
 
 ## Область и трактовка статусов
 
@@ -26,9 +25,8 @@
   но исходный критерий приёмки целиком не проверяется.
 - **Дефект:** описанный сценарий воспроизведён и противоречит контракту API.
 
-Аудит не заменяет основные экспериментальные серии, полную интеграцию в Wisply
-или проверку производительности на целевом окружении. runtime-код и тесты
-библиотеки в Q-01 не изменялись.
+Приёмка не заменяет основные экспериментальные серии, полную интеграцию в Wisply
+или проверку производительности на целевом окружении.
 
 ## Матрица обязательных требований
 
@@ -37,15 +35,15 @@
 
 | ID | Требование и реализация | Проверка | Статус и границы |
 | --- | --- | --- | --- |
-| RPC-1 | Один RPC — один клиентский bidi-поток; соединение переиспользуется. [ClientConn](../rpc/clientconn.go), [Server](../rpc/server.go) | `TestConformance/ConcurrentStreams`: 100 потоков одного соединения; [TestConcurrentCalls](../bench/common/common_test.go): 100 RPC; `TestConnect`: число handshake; [TestStreamSlotsReleased](../rpc/limits_test.go): последовательные вызовы при лимите 2 | Подтверждено составной проверкой. Отдельного RPC-теста, одновременно считающего N вызовов, N потоков и ровно один Dial, нет |
+| RPC-1 | Один RPC — один клиентский bidi-поток; соединение переиспользуется. [ClientConn](../rpc/clientconn.go), [Server](../rpc/server.go) | [TestConcurrentRPCsUseOneConnection](../rpc/acceptance_test.go) удерживает 32 обработчика одновременно, проверяет один Dial и 32 потока, затем успешный 33-й RPC без переподключения; `TestStreamSlotsReleased` | Подтверждено непосредственно на `mem` и QUIC |
 | RPC-2 | Unary, server-stream, client-stream, bidi; типизированные интерфейсы в [stream.go](../rpc/stream.go) | [TestUnary](../rpc/unary_test.go), [TestServerStreaming / TestClientStreaming](../rpc/streaming_test.go), [TestBidiEcho](../rpc/bidi_test.go), дифференциальные сценарии всех четырёх видов | Подтверждено на `mem` и QUIC |
 | RPC-3 | Кадры, метаданные, завершающий статус; строгие varint и protobuf. [frame](../rpc/internal/frame/frame.go), [протокол](protocol.md) | `TestRoundTrip`, `TestNonMinimalVarint`, `TestTooLarge`, тесты декодеров, три fuzz-цели кадров | Подтверждено; размеры проверяются до выделения входного payload |
 | RPC-4 | Статусы 0…16 и один конечный статус. [clientstream.go](../rpc/clientstream.go), [serverstream.go](../rpc/serverstream.go) | [TestClientRecvMatchesModel / TestServerRecvMatchesModel / TestReadRequestHeadersMatchesModel](../rpc/internal/call/grammar_test.go), `TestCardinalityViolations`, `TestDifferential` со всеми кодами | Подтверждено PBT грамматики и RPC-сценариями. PBT не является моделью всех конкурентных событий жизненного цикла |
-| RPC-5 | Передача остатка дедлайна в микросекундах после ожидания соединения и слота; сервер создаёт свой `context`. [clientconn.go](../rpc/clientconn.go), [server.go](../rpc/server.go) | [TestDeadlinePropagation / TestDeadlineExceeded / TestDeadlineAndCancelRealTime](../rpc/deadline_test.go), `TestEarlyConcurrentCallsAndDeadline` | Частично: остаток и отмена проверены; отдельного теста намеренно расходящихся часов клиента и сервера нет |
-| RPC-6 | Отмена контекста сбрасывает направления и останавливает обработчик | [TestCancellationStopsHandler / TestCancellationUnblocksServerRecv / TestCancellationUnblocksServerSend / TestManyCallsLeaveNothingBehind](../rpc/deadline_test.go), реальные сетевые сценарии | Подтверждено. `synctest` проверяет завершение горутин внутри bubble, а не произвольные утечки вне неё. Отдельный дефект `ClientConn.Close` описан ниже |
+| RPC-5 | Остаток дедлайна передаётся в микросекундах; сервер создаёт свой контекст. [clientconn.go](../rpc/clientconn.go), [server.go](../rpc/server.go) | [TestDeadlineWithClockSkew](../rpc/acceptance_test.go): записанный настоящим клиентом запрос исполняется настоящим сервером в отдельной bubble с часами на ±24 часа; остаток 5 с и точное истечение сохраняются. Также `TestDeadlinePropagation`, `TestDeadlineExceeded`, сетевой deadline test | Подтверждено. Сдвиг виртуальных часов, без изменения системного времени или clock hooks в runtime |
+| RPC-6 | Отмена контекста сбрасывает направления и останавливает обработчик | [TestCancellationStopsHandler / TestCancellationUnblocksServerRecv / TestCancellationUnblocksServerSend / TestManyCallsLeaveNothingBehind](../rpc/deadline_test.go), реальные сетевые сценарии | Подтверждено. `synctest` проверяет завершение горутин внутри bubble, а не произвольные утечки вне неё. Закрытие во время подключения дополнительно проверено ниже |
 | RPC-7 | FIN закрывает только отправку, сервер продолжает отвечать | [TestBidiHalfClose](../rpc/bidi_test.go), [TestClientStreaming](../rpc/streaming_test.go), общий `TestConformance/HalfCloseEcho` | Подтверждено на обоих транспортах |
 | RPC-8 | Начальные метаданные и trailers; бинарные и повторные значения | [TestMetadata / TestHeaderCanBeSentOnce](../rpc/metadata_test.go), `TestBidiHeaderWhileReceiving`, дифференциальные сценарии | Подтверждено; статусы с details проверены отдельно |
-| RPC-9 | Блокировка отправителя окнами, целостность данных и ограниченная буферизация. [QUIC](../rpc/transport/quic/quic.go), [mem](../rpc/transport/mem/mem.go) | [TestConformance/Backpressure](../rpc/internal/transporttest/transporttest.go): запись 10 МиБ без чтения блокируется, после чтения байты совпадают; `TestCancellationUnblocksServerSend` | Частично: блокировка и данные проверены; нет отдельного длительного RPC-теста медленного читателя с измерением/бюджетом памяти |
+| RPC-9 | Backpressure блокирует отправителя, сохраняет данные и ограничивает удерживаемую память. [QUIC](../rpc/transport/quic/quic.go), [mem](../rpc/transport/mem/mem.go) | [TestSlowReaderBoundsMemory](../rpc/backpressure_test.go): 64 МиБ, 1024 сообщения по 64 КиБ, читатель останавливается и затем читает с паузами; проверяются все payload, конечный EOF и бюджет 32 МиБ прироста live Go heap | Подтверждено на `mem` и QUIC. Память измеряется после GC в контрольных точках, это не предел RSS и не измерение каждого мгновения |
 | RPC-10 | Клиентские и серверные unary/stream interceptors, цепочки и обёртки | [TestUnaryInterceptors / TestStreamInterceptors / TestInterceptorsAbort / TestStreamInterceptorsWrap / TestInterceptorsSeeCancellation](../rpc/interceptor_test.go), `TestSmokeInterceptors` | Подтверждено для нативного API. У `grpcbridge` stream interceptors отсутствуют |
 | RPC-11 | Общий контракт транспорта; независимые `mem` и QUIC | [transport.go](../rpc/transport/transport.go), общий [TestConformance](../rpc/internal/transporttest/transporttest.go), RPC-фабрики обоих транспортов | Подтверждено; у `mem` нет общего окна соединения, поэтому он не заменяет сетевые тесты |
 | RPC-12 | Keepalive, обнаружение потери, новое соединение; безопасный повтор открытия до отправки | [TestRedialAfterConnectionLoss / TestRetryOnClosedConnection / TestRetryOnce / TestServerRestart / TestDeadServer](../rpc/clientconn_test.go), [TestKeepAlive](../rpc/transport/quic/quic_test.go), `TestStatelessReset` | Подтверждено указанными тестами. Уже отправленные вызовы произвольно не повторяются; рестарт без reset key обнаруживается по idle timeout |
@@ -53,21 +51,17 @@
 | RPC-14 | TLS-билеты, opt-in 0-RTT, отметка идемпотентности на обеих сторонах, безопасный отказ | [TestEarlyIdempotencyGates](../rpc/early_test.go), [TestEarlyCalls / TestEarlyRejection / TestEarlyAuthenticationFailure / TestEarlyDisabled](../rpc/transport/quic/early_test.go), [TestGeneratedIdempotency](../internal/gen/difftest/v1/difftestv1quic/early_test.go), `BenchmarkEarlyReconnect` | Подтверждено тестами и отдельным замером ниже; `grpcbridge` не включает ранние RPC |
 | RPC-16 | GOAWAY, REFUSED, завершение текущих RPC и уход новых на другое соединение | [TestGracefulStop / TestGracefulStopTimeout / TestGracefulStopWaitsForHandlers / TestGracefulStopRefuses / TestGracefulStopRealTime](../rpc/gracefulstop_test.go), [TestGracefulStop](../grpcbridge/gracefulstop_test.go) | Подтверждено; нативный тайм-аут задаётся контекстом, мост имеет свой ограниченный тайм-аут |
 
-Для RPC-1 перечислены отдельные свидетельства, а не заявлен отсутствующий тест
-с единым счётчиком. Для RPC-5 относительная длительность по протоколу исключает
-передачу абсолютного времени, но это не подменяет отсутствующую проверку clock skew.
-
 ## Тестирование и дополнительные ограничения
 
 | ID | Результат аудита |
 | --- | --- |
-| TST-1 | Пакет `rpc` покрыт на 92,3% statements при `go test -count=1 -coverprofile=… ./...` из `rpc/`, выше целевых 80%. Это покрытие конкретного пакета, не среднее всех трёх модулей. В том же запуске генератор — 97,5%, `transport/mem` — 95,6%, `transport/quic` — 93,8%; внутренние пакеты имеют другие значения |
+| TST-1 | Пакет `rpc` покрыт на 94,5% statements, выше целевых 80%. Генератор — 97,5%, `transport/mem` — 95,6%, `transport/quic` — 93,8%. Это значения отдельных пакетов, не среднее всех модулей |
 | TST-2 | Все пять fuzz-целей прошли с бюджетами CI: три декодера по 1 000 000 исполнений, клиент и сервер по 100 000 |
 | TST-3 | PBT проверяет грамматику запроса/ответа, конечный статус и некорректные последовательности; `TestNoMessageAfterCancel` отдельно проверяет уже буферизованный ответ в `synctest`. Единой случайной модели кадры + отмена + закрытие нет |
 | TST-4 | Локальные тесты всех трёх модулей с `-race` прошли. Это не свидетельство удалённого статуса GitHub CI |
 | TST-5 | `TestDifferential` прошёл на семи стеках: grpc-h2, rpc-quic/mem, bridge-quic/mem, connect-h2, grpc-h3. Для connect-go известные различия некорректных вызовов проверяются явно, а часть библиотечных сообщений сравнивается только по коду; полное побитовое совпадение всех ошибок не заявляется |
-| TST-6 | Собственные дедлайны/отмена RPC и большая часть lifecycle-сценариев `mem` используют `synctest`; общая транспортная conformance suite для `mem` всё ещё использует реальные `time.After(blockedFor)`. Полного соответствия буквальному критерию отсутствия реальных пауз нет |
-| TST-7 | Есть `TestRunOutage`, закрытие соединений, аварийный рестарт и проверка статусов; тесты стенда выполнены с запретом пропуска. Обёртка `PacketConn` добавляет задержку и удерживает пакеты, но не внедряет потери; отдельной автоматической RPC-проверки случайных потерь через неё нет. Проверка пробников потерь в `testbed/selfcheck` не заменяет такой RPC-тест |
+| TST-6 | `RunSynctest` выполняет каждый conformance case `mem` в своей bubble. Дедлайны, отмена, закрытие и тест медленного читателя на `mem` используют виртуальное время; polling в REFUSED-тесте заменён каналом. Реальные сетевые таймеры проверяются на QUIC, а не дублируются реальными паузами на `mem` |
+| TST-7 | [TestRPCPacketLoss](../rpc/transport/quic/loss_test.go) проверяет все четыре вида RPC, отмену, deadline и восстановление при потере каждого 20-го серверного UDP-пакета; unit test подтверждает, что пакеты действительно не доставлены. [TestRunPacketLoss](../bench/cmd/bench/run_test.go) проверяет QUIC через настоящий netem с потерями 5% в каждом направлении. Пропуск стенда запрещён |
 | TST-8 | Проверки синтетического генератора, включая open-loop/closed-loop, прошли в составе корневого модуля |
 
 ### Желательное RPC-15
@@ -83,76 +77,24 @@ listener; транспорт клонирует их и принудительн
 но отдельного публичного API RPC-хуков метрик с примером счётчиков нет.
 RPC-15 выполнено частично и само по себе не является воротами фазы 3.
 
-## Найденный дефект: закрытие во время Dial
+## Исправлено закрытие во время Dial
 
-**Q-10, воспроизведено.** Контракт `ClientConn.Close` обещает `Canceled` активным
-вызовам. Пока `getConn` ждёт `Dial`, соединение ещё не входит в `cc.conns`.
-`Close` отмечает клиент закрытым и закрывает имеющиеся соединения, но не отменяет
-контекст Dial и не будит ожидающих его завершения. Ошибка вызывающего контекста
-затем возвращается раньше проверки `closed`.
+Ранее `Close` возвращался, но вызов, ожидающий Dial, дожидался своего дедлайна
+и получал `DeadlineExceeded`. Теперь клиент хранит отмену текущего Dial и
+отдельный сигнал закрытия для ожидающих вызовов. Они получают `Canceled`.
+Позднее соединение после закрытия не устанавливается и освобождается.
 
-При Dialer, корректно ожидающем отмены переданного контекста:
+[Регрессионные тесты](../rpc/clientconn_lifecycle_test.go) внутри `synctest`
+проверяют отмену самого Dial и восьми ожидающих RPC без дедлайна, раннее
+завершение ожидающего стрима при задержке возврата Dial, закрытие позднего
+соединения и независимость контекстов разных вызовов. Bubble проверяет,
+что все созданные горутины завершились.
 
-```text
-Close returned: <nil>
-RPC still blocked 50ms after Close
-RPC finished at caller deadline: DeadlineExceeded
-```
-
-Это поведенческий дефект, не просто отсутствующий тест. Контекст с дедлайном
-250 мс ограничивает воспроизведение; без него ожидание зависит от Dialer.
-`TestClientConnClose` проверяет уже установленное соединение и этот случай
-не охватывает. Ожидание другого вызова на `cc.dialing` также нужно проверить
-при исправлении, но отдельный результат для него здесь не заявляется.
-
-Воспроизведение из корня репозитория: сохранить код ниже в `/tmp/qrpc-close.go`
-и выполнить `go run /tmp/qrpc-close.go`. Нужны зависимости текущего корневого
-модуля с локальным `replace` на `rpc/`; работающий сервер не требуется.
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "time"
-
-    "github.com/VladimirKhmelev/quic-rpc-go/rpc"
-    "github.com/VladimirKhmelev/quic-rpc-go/rpc/status"
-    "github.com/VladimirKhmelev/quic-rpc-go/rpc/transport"
-    "google.golang.org/protobuf/types/known/wrapperspb"
-)
-
-type blockedDialer struct{ started chan struct{} }
-
-func (d blockedDialer) Dial(ctx context.Context) (transport.Conn, error) {
-    close(d.started)
-    <-ctx.Done()
-    return nil, ctx.Err()
-}
-
-func main() {
-    d := blockedDialer{started: make(chan struct{})}
-    c := rpc.NewClient(d)
-    ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-    defer cancel()
-    done := make(chan error, 1)
-    go func() {
-        done <- c.Invoke(ctx, "/test.v1.Test/Call",
-            wrapperspb.String("x"), new(wrapperspb.StringValue))
-    }()
-    <-d.started
-    fmt.Printf("Close returned: %v\n", c.Close())
-    select {
-    case err := <-done:
-        fmt.Printf("RPC finished after Close: %s\n", status.Code(err))
-    case <-time.After(50 * time.Millisecond):
-        fmt.Println("RPC still blocked 50ms after Close")
-        err := <-done
-        fmt.Printf("RPC finished at caller deadline: %s\n", status.Code(err))
-    }
-}
-```
+[TestCloseDuringHandshake](../rpc/transport/quic/clientclose_test.go) повторяет
+сценарий на настоящем QUIC: серверные пакеты удерживаются, handshake не закончен,
+`Close` даёт `Canceled` при ещё живом вызывающем контексте, обработчик не запускается.
+Контекст Dial управляет установкой, а не временем жизни возвращённого соединения;
+пользовательский Dialer обязан учитывать его отмену.
 
 ## Генератор и независимость модулей
 
@@ -201,27 +143,26 @@ unary interceptors, ограниченные stats handlers и graceful shutdown
 
 ## Выполненные команды
 
-| Проверка | Результат 4 ноября 2026 года |
+| Проверка | Результат локальной приёмки 4 ноября 2026 года |
 | --- | --- |
-| `make check` | Успех: fmt, tidy-diff, генерация и fixture, vet, lint и тесты с race detector всех трёх модулей |
+| `QRPC_TESTBED_REQUIRED=1 make check` | Успех: fmt, tidy-diff, генерация и fixture, vet, lint и тесты с race detector всех трёх модулей |
 | `QRPC_TESTBED_REQUIRED=1 make test TESTFLAGS=-cpu=1` | Успех во всех трёх модулях; недоступность стенда не могла превратиться в тихий skip |
 | `make plots-test` | 50 тестов прошли; закреплённые зависимости установлены в `.venv` |
 | `make fuzz` | Все пять целей прошли с исходными бюджетами Makefile/CI; паник и зависаний не обнаружено |
-| `cd rpc && go test -count=1 -coverprofile=/tmp/quic-rpc-go-rpc.cover ./...` | Успех; пакет `rpc` — 92,3% statements |
+| `cd rpc && go test -count=1 -coverprofile=/tmp/quic-rpc-go-phase3-rpc.cover ./...` | Успех; пакет `rpc` — 94,5% statements |
 | `cd rpc && go list -deps .` | Границы runtime-зависимостей подтверждены |
 | Старый generated client + текущий runtime | `go test -mod=mod ./...` во временном модуле: компиляция marker 1 успешна; тестовых сценариев в этом модуле нет |
-| `go run /tmp/qrpc-close.go` | Воспроизведён дефект Q-10; это наблюдение ошибки, не пройденный regression test |
-| `gh pr checks 31`, публичный API checks и веб-страница checks | Удалённый CI не подтверждён: gh без авторизации, API вернул 403, веб-страница недоступна. Локальные проверки перечислены отдельно |
+| Новые пограничные тесты с `-count=5 -cpu=1` | Пять повторов закрытия, разных часов, памяти и потерь прошли; обычные и race-проверки также выполнены |
+| Удалённый CI нового изменения | Ожидается после коммита и push пользователем; локальные проверки перечислены отдельно |
 
 Среда: Linux amd64, Intel Core i5-12450H, Go 1.26.8, quic-go v0.63.0,
 grpc-go v1.84.0, connect-go v2.0.2, protobuf v1.36.12, protoc 3.21.12,
 golangci-lint 2.12.2, Python 3.12.3. Полные локальные журналы находятся в
-`out/acceptance-phase3-20261104/`; этот каталог игнорируется Git и не является
+`out/phase3-completion-20261104/`; этот каталог игнорируется Git и не является
 опубликованным архивом результатов. Основные наблюдения сохранены в этом документе.
 
-Первый запуск Python-тестов в песочнице не смог скачать зависимости; повтор
-с сетевым доступом завершился успешно. Ошибки доступа к GitHub не означают
-красный CI, но и не позволяют утверждать, что CI зелёный.
+Эти исходники ещё не отправлены в GitHub: зелёный удалённый CI этого изменения
+не заявляется. Локальные проверки подтверждаются независимо от доступности GitHub.
 
 ### Приёмочный замер RPC-14
 
@@ -237,21 +178,22 @@ go test ./transport/quic -run '^$' -bench '^BenchmarkEarlyReconnect$' -benchtime
 
 | Режим | Три средних `first_reply_ms`, мс | Три `RTT/reply` |
 | --- | --- | --- |
-| Без 0-RTT | 105,2 / 105,6 / 105,4 | 2,105 / 2,111 / 2,107 |
-| С 0-RTT | 54,31 / 54,18 / 54,59 | 1,086 / 1,084 / 1,092 |
+| Без 0-RTT | 105,7 / 106,2 / 105,8 | 2,114 / 2,123 / 2,116 |
+| С 0-RTT | 54,24 / 54,27 / 54,77 | 1,085 / 1,085 / 1,095 |
 
 Каждое значение — среднее 20 подключений внутри одной серии benchmark.
-Разница медиан трёх средних — около 51,1 мс при добавленных 50 мс RTT:
+Разница медиан трёх средних — около 51,5 мс при добавленных 50 мс RTT:
 приёмочный эффект RPC-14 подтверждён. Это не доверительный интервал,
 не результат основной серии и не сравнение производительности с gRPC.
 
-## Что не проверялось и что делать дальше
+## Границы завершения
 
-- Исправить Q-10 с regression tests отмены самого Dial и ожидающих его вызовов.
-- В Q-09 закрыть точные критерии RPC-5/RPC-9, отметить оставшиеся ограничения
-  тестов и повторить относящиеся к изменению проверки.
-- Для объявления фазы 3 завершённой проверить зелёный CI соответствующего
-  исправленного коммита и обновить этот документ, README и бэклог.
-- Полная самопроверка всех профилей `make testbed-check`, основные серии,
-  замеры на двух хостах, минимальный Go 1.26.3, релиз и полный охват Wisply
-  в этом аудите не выполнялись. Они не заменяются короткими тестами и benchmark.
+Код исправления и недостающие локальные проверки готовы. Для формального
+закрытия фазы 3 остаётся зелёный CI соответствующего PR после коммита и push.
+Предыдущие результаты Q-01 не заменяют CI нового кода.
+
+Полная самопроверка всех профилей `make testbed-check`, основные научные серии,
+двуххостовые измерения, минимальный Go 1.26.3, выпуск модулей и полный охват Wisply
+не выполнялись. Это дальнейшие этапы; желательное RPC-15 не добавлено к воротам
+фазы 3. Проверенные бюджеты памяти и модели потерь перечислены выше, выводы
+не распространяются на произвольные нагрузки и все возможные модели сети.

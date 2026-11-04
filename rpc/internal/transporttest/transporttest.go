@@ -11,6 +11,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/rpc/transport"
@@ -28,6 +29,16 @@ const blockedFor = 100 * time.Millisecond
 
 // Run runs the conformance suite.
 func Run(t *testing.T, newTransport Factory) {
+	run(t, newTransport, false)
+}
+
+// RunSynctest runs each conformance case with virtual time and checks that
+// all of its goroutines finish. It is for in-memory transports, not sockets.
+func RunSynctest(t *testing.T, newTransport Factory) {
+	run(t, newTransport, true)
+}
+
+func run(t *testing.T, newTransport Factory, virtualTime bool) {
 	tests := []struct {
 		name string
 		fn   func(*testing.T, Factory)
@@ -46,11 +57,21 @@ func Run(t *testing.T, newTransport Factory) {
 		{"UniStreamCancelWrite", testUniStreamCancelWrite},
 		{"UniStreamLimit", testUniStreamLimit},
 		{"ClientCannotOpenUniStreams", testClientCannotOpenUniStreams},
-		{"ConnErrorCancelsContext", testConnErrorCancelsContext},
+		{"ConnErrorCancelsContext/CloseWithError", func(t *testing.T, f Factory) { testConnErrorCancelsContext(t, f, "CloseWithError") }},
+		{"ConnErrorCancelsContext/OpenStream", func(t *testing.T, f Factory) { testConnErrorCancelsContext(t, f, "OpenStream") }},
+		{"ConnErrorCancelsContext/AcceptStream", func(t *testing.T, f Factory) { testConnErrorCancelsContext(t, f, "AcceptStream") }},
+		{"ConnErrorCancelsContext/AcceptUniStream", func(t *testing.T, f Factory) { testConnErrorCancelsContext(t, f, "AcceptUniStream") }},
+		{"ConnErrorCancelsContext/Read", func(t *testing.T, f Factory) { testConnErrorCancelsContext(t, f, "Read") }},
 		{"ListenerClose", testListenerClose},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) { tt.fn(t, newTransport) })
+		t.Run(tt.name, func(t *testing.T) {
+			if virtualTime {
+				synctest.Test(t, func(t *testing.T) { tt.fn(t, newTransport) })
+			} else {
+				tt.fn(t, newTransport)
+			}
+		})
 	}
 }
 
@@ -517,7 +538,7 @@ func testClientCannotOpenUniStreams(t *testing.T, f Factory) {
 // testConnErrorCancelsContext checks that the connection context is done by
 // the time anything reports the connection closed: rpc.ClientConn checks it
 // to decide whether to dial again.
-func testConnErrorCancelsContext(t *testing.T, f Factory) {
+func testConnErrorCancelsContext(t *testing.T, f Factory, operation string) {
 	closeConn := func(t *testing.T, c transport.Conn) {
 		t.Helper()
 		if err := c.CloseWithError(transport.NoError, "bye"); err != nil {
@@ -534,34 +555,31 @@ func testConnErrorCancelsContext(t *testing.T, f Factory) {
 		}
 	}
 
-	t.Run("CloseWithError", func(t *testing.T) {
+	switch operation {
+	case "CloseWithError":
 		client, _ := Pair(t, f, 10)
 		closeConn(t, client)
 		if client.Context().Err() == nil {
 			t.Fatal("connection context is not done after CloseWithError returned")
 		}
-	})
-	t.Run("OpenStream", func(t *testing.T) {
+	case "OpenStream":
 		client, server := Pair(t, f, 1)
 		open(t, client)
 		closeConn(t, server)
 		// Blocks on the stream limit until the close reaches the client.
 		_, err := client.OpenStream(Context(t))
 		wantDone(t, client, err, "OpenStream")
-	})
-	t.Run("AcceptStream", func(t *testing.T) {
+	case "AcceptStream":
 		client, server := Pair(t, f, 10)
 		closeConn(t, client)
 		_, err := server.AcceptStream(Context(t))
 		wantDone(t, server, err, "AcceptStream")
-	})
-	t.Run("AcceptUniStream", func(t *testing.T) {
+	case "AcceptUniStream":
 		client, server := Pair(t, f, 10)
 		closeConn(t, server)
 		_, err := client.AcceptUniStream(Context(t))
 		wantDone(t, client, err, "AcceptUniStream")
-	})
-	t.Run("Read", func(t *testing.T) {
+	case "Read":
 		client, server := Pair(t, f, 10)
 		cs := open(t, client)
 		write(t, cs, []byte("x"))
@@ -569,7 +587,7 @@ func testConnErrorCancelsContext(t *testing.T, f Factory) {
 		closeConn(t, server)
 		_, err := io.ReadAll(cs)
 		wantDone(t, client, err, "Read")
-	})
+	}
 }
 
 func testListenerClose(t *testing.T, f Factory) {

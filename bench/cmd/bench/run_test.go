@@ -193,6 +193,33 @@ func TestRunPoolReconnect(t *testing.T) {
 	}
 }
 
+// Exercise RPC loss recovery through the real namespace/netem path too;
+// PacketConn tests alone cannot establish that the testbed applies losses.
+func TestRunPacketLoss(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "profiles.yaml")
+	profile := "profiles:\n  - {name: packet-loss, rtt: 2ms, loss: 5%}\n"
+	if err := os.WriteFile(file, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir, m := runBench(t, "-transport", "quic", "-load", "small", "-profile", "packet-loss", "-profiles", file,
+		"-server-cpus", "", "-client-cpus", "")
+	if m.Network.Loss != 5 {
+		t.Fatalf("loss metadata: %v, want 5%% in each direction", m.Network.Loss)
+	}
+	measured := 0
+	for _, r := range readCalls(t, dir) {
+		if r.Code != 0 {
+			t.Fatalf("RPC failed under packet loss: %+v", r)
+		}
+		if !r.Warmup {
+			measured++
+		}
+	}
+	if measured < 150 {
+		t.Fatalf("only %d measured calls", measured)
+	}
+}
+
 // cut is a network profile whose outage of 300 ms falls in the middle of
 // the measurement of runBench, from 550 to 850 ms.
 const cut = `profiles:
