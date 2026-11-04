@@ -142,6 +142,8 @@ type Listener interface {
 
 // Dialer establishes connections to one server.
 type Dialer interface {
+	// Dial must stop waiting when ctx is canceled. The context controls
+	// connection setup, not the lifetime of the returned connection.
 	Dial(ctx context.Context) (Conn, error)
 }
 

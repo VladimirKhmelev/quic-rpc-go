@@ -47,7 +47,10 @@ type ClientConn struct {
 	// conns holds every open connection, those going away included.
 	conns   map[*connection]struct{}
 	dialing chan struct{} // closed when the dial in progress ends
-	closed  bool
+	// cancelDial interrupts the current dial; done also wakes its waiters.
+	cancelDial context.CancelFunc
+	done       chan struct{}
+	closed     bool
 }
 
 // connection is a connection of a ClientConn. Its fields are guarded by
@@ -76,11 +79,13 @@ func NewClient(d transport.Dialer, opts ...DialOption) *ClientConn {
 		unaryInt:  chainUnaryClient(o.unary),
 		streamInt: chainStreamClient(o.stream),
 		conns:     map[*connection]struct{}{},
+		done:      make(chan struct{}),
 	}
 }
 
-// Close closes the connections. Calls in flight and later calls fail with
-// Canceled.
+// Close cancels pending connection setup, wakes callers waiting for it and
+// closes established connections. Calls in flight and later calls fail with
+// Canceled. A dialer must honor cancellation of its Dial context.
 func (cc *ClientConn) Close() error {
 	cc.mu.Lock()
 	if cc.closed {
@@ -88,12 +93,17 @@ func (cc *ClientConn) Close() error {
 		return errClientConnClosing
 	}
 	cc.closed = true
+	close(cc.done)
+	cancelDial := cc.cancelDial
 	cc.conn = nil
 	conns := make([]*connection, 0, len(cc.conns))
 	for c := range cc.conns {
 		conns = append(conns, c)
 	}
 	cc.mu.Unlock()
+	if cancelDial != nil {
+		cancelDial()
+	}
 	var err error
 	for _, c := range conns {
 		if cerr := c.CloseWithError(transport.NoError, "client connection closed"); err == nil {
@@ -131,16 +141,22 @@ func (cc *ClientConn) getConn(ctx context.Context) (*connection, error) {
 				continue
 			case <-ctx.Done():
 				return nil, status.FromContextError(ctx.Err()).Err()
+			case <-cc.done:
+				return nil, errClientConnClosing
 			}
 		}
 		done := make(chan struct{})
+		dialCtx, cancel := context.WithCancel(ctx)
 		cc.dialing = done
+		cc.cancelDial = cancel
 		cc.mu.Unlock()
 
-		conn, err := cc.dialer.Dial(ctx)
+		conn, err := cc.dialer.Dial(dialCtx)
+		cancel()
 
 		cc.mu.Lock()
 		cc.dialing = nil
+		cc.cancelDial = nil
 		close(done)
 		closed := cc.closed
 		var c *connection
@@ -152,13 +168,15 @@ func (cc *ClientConn) getConn(ctx context.Context) (*connection, error) {
 		cc.mu.Unlock()
 
 		switch {
+		case closed:
+			if conn != nil {
+				_ = conn.CloseWithError(transport.NoError, "client connection closed")
+			}
+			return nil, errClientConnClosing
 		case err != nil && ctx.Err() != nil:
 			return nil, status.FromContextError(ctx.Err()).Err()
 		case err != nil:
 			return nil, status.Errorf(codes.Unavailable, "connection error: %v", err)
-		case closed:
-			_ = conn.CloseWithError(transport.NoError, "client connection closed")
-			return nil, errClientConnClosing
 		default:
 			go cc.watch(c)
 			return c, nil
