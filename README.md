@@ -58,6 +58,40 @@ protoc --go_out=. --go_opt=paths=source_relative \
 
 Поддерживаются методы всех четырёх видов: unary, server-stream, client-stream и bidi.
 
+## Лимиты сообщений
+
+API ниже доступен в текущих исходниках.
+
+По умолчанию клиент и сервер принимают сообщения до 4 МиБ; отдельного лимита
+отправки нет. Лимиты относятся к сериализованному protobuf каждого сообщения:
+
+```go
+server := rpc.NewServer(rpc.MaxRecvMsgSize(9<<20), rpc.MaxSendMsgSize(9<<20))
+client := rpc.NewClient(dialer, rpc.WithDefaultCallOptions(
+    rpc.MaxCallRecvMsgSize(9<<20), rpc.MaxCallSendMsgSize(9<<20),
+))
+// A call's options override these defaults, including for streaming calls.
+err := client.Invoke(ctx, method, request, response, rpc.MaxCallRecvMsgSize(16<<20))
+```
+
+`grpcbridge` поддерживает аналогичные серверные опции,
+`WithDefaultCallOptions` и call options `grpc.MaxCallRecvMsgSize` /
+`grpc.MaxCallSendMsgSize`. Превышение возвращает `ResourceExhausted`.
+HEADERS/TRAILERS сохраняют предел 64 КиБ. Подробности — в
+[протоколе](docs/protocol.md#лимиты).
+
+Для стенда лимиты задаются явно и одинаково всем сравниваемым транспортам:
+
+```sh
+make bench-run TRANSPORT=quic LOAD=heavy-8m RUNFLAGS="-max-recv-msg-bytes 9437184 -max-send-msg-bytes 9437184"
+make bench-series MATRIX=testbed/scenarios/messages-8m.yaml SERIESFLAGS=-dry-run
+```
+
+9 МиБ оставляют место для protobuf-обёртки ответа с полезными данными 8 МиБ.
+`messages-8m.yaml` — короткая проверка передачи на пяти транспортах, не серия
+для выводов о производительности. Лимиты сохраняются в плане и метаданных;
+старые сценарии и данные пилота используют прежние значения по умолчанию.
+
 ## 0-RTT при переподключении
 
 API ниже доступен в текущих исходниках. Для использования сгенерированного кода

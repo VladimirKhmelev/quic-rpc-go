@@ -28,10 +28,10 @@
 
 | Поле | Смысл |
 | --- | --- |
-| `matrix` | матрица, как её прочитала серия: `name`, `seed`, `repeats`, `warmup_ns`, `duration_ns`, `variants` (`name`, `transport`, `tcp`, `pool_size`, `pool_policy`), `networks`, `loads`, `drift` |
+| `matrix` | матрица, как её прочитала серия: `name`, `seed`, `repeats`, `warmup_ns`, `duration_ns`, `variants` (`name`, `transport`, `tcp`, `pool_size`, `pool_policy`, `max_recv_msg_bytes`, `max_send_msg_bytes`), `networks`, `loads`, `drift` |
 | `networks`, `loads` | профили сетей и нагрузок серии на момент её начала, в формате полей `network` и `load` из `meta.json` |
 | `created` | когда серия началась |
-| `runs` | прогоны в порядке выполнения: `id` — имя каталога (номер, вариант, сеть, нагрузка и `r<повтор>` или роль), `variant`, `transport`, `tcp`, `pool_size`, `pool_policy`, `network`, `load`, `repeat` (с 1, у прогонов дрейфа 0), `seed`, `role` (`drift-start`, `drift-end` или нет) |
+| `runs` | прогоны в порядке выполнения: `id` — имя каталога (номер, вариант, сеть, нагрузка и `r<повтор>` или роль), `variant`, `transport`, `tcp`, `pool_size`, `pool_policy`, `max_recv_msg_bytes`, `max_send_msg_bytes`, `network`, `load`, `repeat` (с 1, у прогонов дрейфа 0), `seed`, `role` (`drift-start`, `drift-end` или нет) |
 
 ## Таблицы анализа
 
@@ -39,7 +39,7 @@
 
 | Файл | Строка | Что в ней |
 | --- | --- | --- |
-| `runs.csv` | прогон | из `series.json`: `run_id`, `variant`, `transport`, `tcp`, `pool_size`, `pool_policy`, `network`, `load`, `repeat`, `seed`, `role`; сеть: `rtt_ms`, `jitter_ms`, `loss_pct`, `loss_burst`, `reorder_pct`, `rate_bps`, `queue_bdp`; из `meta.json`: `warmup_ns`, `measure_ns`, `window_ns`, CPU процессов `server_cpu_ns` и `client_cpu_ns` (user + system), занятость их ядер `server_cores_busy_ns` и `client_cores_busy_ns` (всё, кроме idle и iowait), `sent_bytes_per_s`, `received_bytes_per_s`, `in_flight_mean`, `in_flight_max`, `tls`, `alpn` (согласованный протокол: `qrpc/2`, `h2`, `h3`; пусто в старых данных), `problems` (число отличий машины от NET-5), `commit`, `dirty` |
+| `runs.csv` | прогон | из `series.json`: `run_id`, `variant`, `transport`, `tcp`, `pool_size`, `pool_policy`, `max_recv_msg_bytes`, `max_send_msg_bytes`, `network`, `load`, `repeat`, `seed`, `role`; сеть: `rtt_ms`, `jitter_ms`, `loss_pct`, `loss_burst`, `reorder_pct`, `rate_bps`, `queue_bdp`; из `meta.json`: `warmup_ns`, `measure_ns`, `window_ns`, CPU процессов `server_cpu_ns` и `client_cpu_ns` (user + system), занятость их ядер `server_cores_busy_ns` и `client_cores_busy_ns` (всё, кроме idle и iowait), `sent_bytes_per_s`, `received_bytes_per_s`, `in_flight_mean`, `in_flight_max`, `tls`, `alpn` (согласованный протокол: `qrpc/2`, `h2`, `h3`; пусто в старых данных), `problems` (число отличий машины от NET-5), `commit`, `dirty` |
 | `calls.parquet` | вызов | колонки `calls.csv` и `run_id`; сжатие zstd |
 | `summary.csv` | прогон и вид вызова | колонки `runs.csv` и `kind`, `count`, `errors`, `error_pct`, `p50`, `p95`, `p99` (мс) за окно измерения, `growth` — медианная задержка последней трети измерения против первой, `overloaded` — перегружен ли прогон ([методика](../docs/methodology.md#анализ-exp-7-anl-1anl-3)) |
 | `cells.csv` | ячейка | `network`, `load`, `kind`, `variant`, `runs`, `error_pct` (средняя по прогонам), `overloaded_runs` (перегруженных прогонов), `growth` (медиана по прогонам), `goodput_mbps` (медиана по прогонам: полезные данные отвеченных вызовов всех видов в обе стороны, Мбит/с), `overloaded` (перегружено больше половины прогонов) и по каждому перцентилю медиана по прогонам и её интервал: `p99`, `p99_lo`, `p99_hi` и т. д. |
@@ -92,6 +92,7 @@ make plots ANALYSIS=data/pilot
 | `run_id` | имя каталога прогона |
 | `transport` | `quic`, `grpc-h2`, `grpc-h2-pool`, `grpc-h3` или `connect-h2` |
 | `pool_size`, `pool_policy` | фактическое число соединений и распределение RPC: для пула N и `round-robin`, для остальных транспортов 1 и `single` |
+| `max_recv_msg_bytes`, `max_send_msg_bytes` | пределы сериализованного сообщения в байтах, одинаковые у клиента и сервера; отправка `0` — без отдельного ограничения |
 | `network` | профиль сети: `name`, `description`, `rtt_ns`, `jitter_ns`, `loss_pct` (потери в процентах), `loss_burst`, `reorder_pct`, `rate_bps` (бит/с, 0 — без ограничения), `queue_bdp`, `outage` (`duration_ns`, `every_ns`) |
 | `load` | профиль нагрузки: `name`, `description` и те части, что есть: `small` (`rate` в секунду, `min_size`, `max_size` в байтах), `heavy` (`size`, `every_ns`), `echo` (`rate`, `size`), `reconnect` (`every_ns`, `calls`) |
 | `tcp` | вариант TCP: `aligned` или `default` |
@@ -115,3 +116,18 @@ make plots ANALYSIS=data/pilot
 Поля `pool_size` и `pool_policy` в старых сериях и `runs.csv` могут отсутствовать: для исторических `quic` и `grpc-h2` это 1 и `single`. Для `grpc-h2-pool` анализ требует явные параметры и их совпадение между планом и `meta.json`. Одно имя `variant` не может объединять разные N или политики. Размер пула и политика входят в проверку постановки при возобновлении серии.
 
 Для `grpc-h3` и `connect-h2` размер пула равен 1, политика — `single`. Параметр `alpn` из TLS сохраняется в новых `runs.csv`; при его наличии анализ проверяет соответствие транспорту, чтобы не принять HTTP/2 за HTTP/3. Версии connect-go и QPACK находятся в `build.modules`.
+
+
+Лимиты сообщений `max_recv_msg_bytes` и `max_send_msg_bytes` — эффективные
+пределы сериализованного protobuf в байтах. Они одинаковы для клиента и сервера
+прогона и сохраняются у каждого варианта матрицы, в `runs` плана, в `meta.json`
+и `runs.csv` (далее наследуются `summary.csv` и `warmup.csv`). Предел приёма
+положительный: 65…2 147 483 647; предел отправки — тот же диапазон либо `0`
+(нет отдельного ограничения). Это не размер полезного payload, потока или окна
+flow control. Пример для полезного ответа 8 МиБ: оба значения 9 437 184.
+
+У исторических записей и таблиц могут отсутствовать **оба** поля: анализ
+восстанавливает прежний приём 4 194 304 и отправку `0`, не переписывая данные.
+Частично заданные, некорректные и отличающиеся между планом и метаданными
+значения отклоняются. Разные лимиты внутри одного `variant` запрещены, как и
+изменение лимитов при возобновлении серии.

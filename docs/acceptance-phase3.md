@@ -66,10 +66,13 @@ backpressure с бюджетом памяти и восстановления п
 
 ### Желательное RPC-15
 
-Входящий MESSAGE ограничен 4 МиБ, HEADERS/TRAILERS — 64 КиБ. Тип
-`frame.Limits` настраивается внутри `internal/frame`, но RPC-клиент и сервер
-создают reader через `frame.DefaultLimits()`; публичной настройки этих размеров
-пока нет. Это часть Q-02, а не выполненная функция.
+По умолчанию входящий MESSAGE ограничен 4 МиБ, HEADERS/TRAILERS — 64 КиБ.
+В Q-02 добавлены публичные независимые лимиты отправки и приёма MESSAGE для
+сервера, клиента и отдельного RPC, а также перевод опций в `grpcbridge`.
+Проверки `TestConfiguredMessageLimits`, `TestMessageLimitDefaultsAndOverrides`
+и `TestRaisedMessageLimit` покрывают границы, переопределения и 8 МиБ на `mem`
+и QUIC; `TestEightMiB` и `TestRunEightMiB` проверяют пять транспортов стенда.
+Публичной настройки размера HEADERS/TRAILERS по-прежнему нет.
 
 Лимит потоков и окна QUIC можно задать через `Dialer.QUICConfig` и конфигурацию
 listener; транспорт клонирует их и принудительно задаёт разрешённые направления.
@@ -126,9 +129,11 @@ unary interceptors, ограниченные stats handlers и graceful shutdown
 `TestHealth`, `TestStatsHandlers`, `TestStreamStats`, `TestOtelgrpc`,
 `TestGracefulStop` и дифференциальные сценарии bridge-quic/mem.
 
-- Поддерживаются `grpc.Header`, `grpc.Trailer`, `grpc.StaticMethod` и пустая
-  `grpc.EmptyCallOption`. Другие call options, включая `WaitForReady` и
-  `MaxCallRecvMsgSize`, возвращают `Internal`.
+- Поддерживаются `grpc.Header`, `grpc.Trailer`, `grpc.StaticMethod`,
+  `grpc.MaxCallRecvMsgSize`, `grpc.MaxCallSendMsgSize` и пустая
+  `grpc.EmptyCallOption`. Есть `WithDefaultCallOptions` и серверные
+  `MaxRecvMsgSize` / `MaxSendMsgSize`. Другие call options, включая
+  `WaitForReady` и compression, возвращают `Internal`.
 - Первый unary interceptor — внешний; клиентский получает `nil *grpc.ClientConn`.
 - Stats handlers передают `Begin`, клиентский `OutHeader` / серверный `InHeader`
   и единственный `End`; trace context клиента попадает в исходящие метаданные.
