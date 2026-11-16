@@ -68,6 +68,27 @@ def connection_setup(record: dict, transport: str) -> tuple[int, str]:
     return size, policy
 
 
+MESSAGE_LIMIT_COLUMNS = ["max_recv_msg_bytes", "max_send_msg_bytes"]
+
+
+def message_limits(record: dict) -> tuple[int, int]:
+    """Reads effective protobuf byte limits. Only records predating both
+    fields may omit them; zero send means the historical unlimited default."""
+    present = [k in record for k in MESSAGE_LIMIT_COLUMNS]
+    if not any(present):
+        return 4 << 20, 0
+    if not all(present):
+        raise ValueError("incomplete message limits")
+    recv, send = (record[k] for k in MESSAGE_LIMIT_COLUMNS)
+
+    def valid(n):
+        return isinstance(n, int) and not isinstance(n, bool) and 64 < n <= (1 << 31) - 1
+
+    if not valid(recv) or not (type(send) is int and send == 0 or valid(send)):
+        raise ValueError(f"invalid message limits ({recv!r}, {send!r})")
+    return recv, send
+
+
 def normalize_setups(runs: pd.DataFrame) -> pd.DataFrame:
     """Preserves legacy tables and rejects pooling different setups under
     the same variant name, which is the unit used by the statistics."""
@@ -75,9 +96,12 @@ def normalize_setups(runs: pd.DataFrame) -> pd.DataFrame:
     setups = [connection_setup(r, r["transport"]) for r in runs.to_dict("records")]
     runs["pool_size"] = [s[0] for s in setups]
     runs["pool_policy"] = [s[1] for s in setups]
+    limits = [message_limits(r) for r in runs.to_dict("records")]
+    for i, column in enumerate(MESSAGE_LIMIT_COLUMNS):
+        runs[column] = [l[i] for l in limits]
     for variant, group in runs.groupby("variant", observed=True):
-        if len(group[["transport", "tcp", "pool_size", "pool_policy"]].drop_duplicates()) != 1:
-            raise ValueError(f"variant {variant!r}: different connection setups")
+        if len(group[["transport", "tcp", "pool_size", "pool_policy", *MESSAGE_LIMIT_COLUMNS]].drop_duplicates()) != 1:
+            raise ValueError(f"variant {variant!r}: different connection setups or message limits")
     return runs
 
 
@@ -87,6 +111,9 @@ def run_row(planned: dict, meta: dict) -> dict:
     net = meta["network"]
     transport = planned["transport"]
     setup = connection_setup(planned, transport)
+    limits = message_limits(planned)
+    if message_limits(meta) != limits:
+        raise ValueError(f"{planned['id']}: message limits differ from plan")
     if meta.get("transport", transport) != transport or connection_setup(meta, transport) != setup:
         raise ValueError(f"{planned['id']}: connection setup differs from plan")
     cores = {c["id"]: c for c in meta["cores"]}
@@ -106,6 +133,8 @@ def run_row(planned: dict, meta: dict) -> dict:
         "transport": planned["transport"],
         "pool_size": setup[0],
         "pool_policy": setup[1],
+        "max_recv_msg_bytes": limits[0],
+        "max_send_msg_bytes": limits[1],
         "tcp": planned["tcp"],
         "network": planned["network"],
         "load": planned["load"],

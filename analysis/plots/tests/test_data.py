@@ -137,3 +137,51 @@ def test_negotiated_http_version(tmp_path):
     meta_path.write_text(json.dumps(meta))
     with pytest.raises(ValueError, match="negotiated ALPN"):
         data.read_series(path)
+
+
+def test_message_limits_legacy_and_round_trip(tmp_path):
+    series = data.read_series(make_series(tmp_path / "s", ["base"], ["small"], 1))
+    assert set(series.runs["max_recv_msg_bytes"]) == {4 << 20}
+    assert set(series.runs["max_send_msg_bytes"]) == {0}
+    out = tmp_path / "tables"
+    data.write_tables(series, out)
+    # Previously published pilot tables omit both fields.
+    series.runs.drop(columns=data.MESSAGE_LIMIT_COLUMNS).to_csv(out / data.RUNS_FILE, index=False)
+    runs, _ = data.read_tables(out)
+    pd.testing.assert_frame_equal(runs, series.runs, check_dtype=False, check_like=True)
+    runs["max_recv_msg_bytes"] = 9 << 20
+    runs["max_send_msg_bytes"] = 9 << 20
+    series.runs = runs
+    data.write_tables(series, out)
+    restored, _ = data.read_tables(out)
+    pd.testing.assert_frame_equal(restored, runs, check_dtype=False)
+
+
+@pytest.mark.parametrize("limits", [
+    {"max_recv_msg_bytes": 9 << 20},
+    {"max_recv_msg_bytes": 0, "max_send_msg_bytes": 0},
+    {"max_recv_msg_bytes": True, "max_send_msg_bytes": 0},
+    {"max_recv_msg_bytes": 9 << 20, "max_send_msg_bytes": -1},
+    {"max_recv_msg_bytes": 9 << 20, "max_send_msg_bytes": 64},
+    {"max_recv_msg_bytes": 1 << 31, "max_send_msg_bytes": 0},
+])
+def test_invalid_message_limits(limits):
+    with pytest.raises(ValueError, match="message limits"):
+        data.message_limits(limits)
+
+
+def test_plan_and_metadata_message_limits_must_match(tmp_path):
+    path = make_series(tmp_path / "s", ["base"], ["small"], 1)
+    meta_path = next(path.glob("*/meta.json"))
+    meta = json.loads(meta_path.read_text())
+    meta.update(max_recv_msg_bytes=9 << 20, max_send_msg_bytes=9 << 20)
+    meta_path.write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="message limits differ from plan"):
+        data.read_series(path)
+
+
+def test_variant_cannot_mix_message_limits(tmp_path):
+    series = data.read_series(make_series(tmp_path / "s", ["base"], ["small"], 1))
+    series.runs.loc[0, "max_recv_msg_bytes"] = 9 << 20
+    with pytest.raises(ValueError, match="different connection setups or message limits"):
+        data.normalize_setups(series.runs)
