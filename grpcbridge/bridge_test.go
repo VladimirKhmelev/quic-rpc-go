@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -255,7 +256,7 @@ func TestInterceptors(t *testing.T) {
 // instead of being ignored.
 func TestCallOptions(t *testing.T) {
 	cc, _ := serve(t, func(_ context.Context, in *wrapperspb.StringValue) (*wrapperspb.StringValue, error) { return in, nil }, nil)
-	for _, opt := range []grpc.CallOption{grpc.WaitForReady(true), grpc.MaxCallRecvMsgSize(1 << 10)} {
+	for _, opt := range []grpc.CallOption{grpc.WaitForReady(true), grpc.UseCompressor("gzip")} {
 		_, err := call(ctx(t), cc, "x", opt)
 		if st := grpcstatus.Convert(err); st.Code() != grpccodes.Internal || st.Message() != fmt.Sprintf("grpcbridge: call option %T is not supported", opt) {
 			t.Errorf("call with %T: %v", opt, err)
@@ -305,5 +306,60 @@ func TestServeAfterStop(t *testing.T) {
 	srv.Stop()
 	if err := srv.Serve(mem.Listen(mem.Options{})); !errors.Is(err, grpc.ErrServerStopped) {
 		t.Fatalf("Serve after Stop: %v", err)
+	}
+}
+
+func TestMessageLimits(t *testing.T) {
+	for _, direction := range []string{"server-recv", "server-send", "client-recv", "client-send"} {
+		t.Run(direction, func(t *testing.T) {
+			var so []grpcbridge.ServerOption
+			var co []grpcbridge.DialOption
+			switch direction {
+			case "server-recv":
+				so = []grpcbridge.ServerOption{grpcbridge.MaxRecvMsgSize(3)}
+			case "server-send":
+				so = []grpcbridge.ServerOption{grpcbridge.MaxSendMsgSize(3)}
+			case "client-recv":
+				co = []grpcbridge.DialOption{grpcbridge.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(3))}
+			case "client-send":
+				co = []grpcbridge.DialOption{grpcbridge.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(3))}
+			}
+			cc, _ := serve(t, func(_ context.Context, in *wrapperspb.StringValue) (*wrapperspb.StringValue, error) { return in, nil }, so, co...)
+			for _, in := range []string{"x", "xx", "x"} {
+				_, err := call(ctx(t), cc, in)
+				want := grpccodes.OK
+				if in == "xx" {
+					want = grpccodes.ResourceExhausted
+				}
+				if grpcstatus.Code(err) != want {
+					t.Fatalf("%q: %v, want %v", in, err, want)
+				}
+			}
+			if strings.HasPrefix(direction, "client-") {
+				if out, err := call(ctx(t), cc, "xx", grpc.MaxCallSendMsgSize(4), grpc.MaxCallRecvMsgSize(4)); err != nil || out != "xx" {
+					t.Fatalf("override: %q, %v", out, err)
+				}
+			}
+			cs, err := cc.NewStream(ctx(t), &echoDesc.Streams[0], repeatMethod)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sendErr := cs.SendMsg(wrapperspb.String("xx"))
+			_ = cs.CloseSend()
+			err = cs.RecvMsg(new(wrapperspb.StringValue))
+			if grpcstatus.Code(err) != grpccodes.ResourceExhausted {
+				t.Fatalf("stream receive: %v (send: %v)", err, sendErr)
+			}
+		})
+	}
+}
+
+func TestRaisedMessageLimits(t *testing.T) {
+	cc, _ := serve(t, func(_ context.Context, in *wrapperspb.StringValue) (*wrapperspb.StringValue, error) { return in, nil },
+		[]grpcbridge.ServerOption{grpcbridge.MaxRecvMsgSize(9 << 20), grpcbridge.MaxSendMsgSize(9 << 20)},
+		grpcbridge.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(9<<20), grpc.MaxCallSendMsgSize(9<<20)))
+	big := strings.Repeat("x", 8<<20)
+	if out, err := call(ctx(t), cc, big); err != nil || out != big {
+		t.Fatalf("8 MiB bridge: %d, %v", len(out), err)
 	}
 }

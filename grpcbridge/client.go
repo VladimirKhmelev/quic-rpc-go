@@ -19,9 +19,10 @@ import (
 // ClientConn is a client of quic-rpc-go for code generated for grpc-go. It
 // is safe for concurrent use.
 type ClientConn struct {
-	cc    *rpc.ClientConn
-	unary grpc.UnaryInvoker
-	stats handlers
+	cc       *rpc.ClientConn
+	unary    grpc.UnaryInvoker
+	stats    handlers
+	defaults []grpc.CallOption
 }
 
 var _ grpc.ClientConnInterface = (*ClientConn)(nil)
@@ -30,8 +31,9 @@ var _ grpc.ClientConnInterface = (*ClientConn)(nil)
 type DialOption func(*dialOptions)
 
 type dialOptions struct {
-	unary []grpc.UnaryClientInterceptor
-	stats handlers
+	defaults []grpc.CallOption
+	unary    []grpc.UnaryClientInterceptor
+	stats    handlers
 }
 
 // WithChainUnaryInterceptor adds interceptors to unary calls. The first is
@@ -59,7 +61,7 @@ func NewClient(d transport.Dialer, opts ...DialOption) *ClientConn {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	c := &ClientConn{cc: rpc.NewClient(d), stats: o.stats}
+	c := &ClientConn{cc: rpc.NewClient(d), stats: o.stats, defaults: o.defaults}
 	c.unary = c.invoke
 	for i := len(o.unary) - 1; i >= 0; i-- {
 		interceptor, next := o.unary[i], c.unary
@@ -75,6 +77,9 @@ func (c *ClientConn) Close() error { return c.cc.Close() }
 
 // Invoke performs a unary call through the interceptors.
 func (c *ClientConn) Invoke(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
+	if len(c.defaults) > 0 {
+		opts = append(append([]grpc.CallOption(nil), c.defaults...), opts...)
+	}
 	return c.unary(ctx, method, args, reply, nil, opts...)
 }
 
@@ -100,6 +105,9 @@ func (c *ClientConn) invoke(ctx context.Context, method string, args, reply any,
 
 // NewStream starts a streaming call.
 func (c *ClientConn) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	if len(c.defaults) > 0 {
+		opts = append(append([]grpc.CallOption(nil), c.defaults...), opts...)
+	}
 	callOpts, _, err := callOptions(opts)
 	if err != nil {
 		return nil, err
@@ -134,6 +142,10 @@ func callOptions(opts []grpc.CallOption) ([]rpc.CallOption, *grpcmetadata.MD, er
 		case grpc.TrailerCallOption:
 			out = append(out, rpc.Trailer((*metadata.MD)(o.TrailerAddr)))
 			trailer = o.TrailerAddr
+		case grpc.MaxRecvMsgSizeCallOption:
+			out = append(out, rpc.MaxCallRecvMsgSize(o.MaxRecvMsgSize))
+		case grpc.MaxSendMsgSizeCallOption:
+			out = append(out, rpc.MaxCallSendMsgSize(o.MaxSendMsgSize))
 		case grpc.StaticMethodCallOption, grpc.EmptyCallOption:
 		default:
 			return nil, nil, grpcstatus.Errorf(grpccodes.Internal, "grpcbridge: call option %T is not supported", o)
@@ -159,7 +171,14 @@ func (c *clientStream) Header() (grpcmetadata.MD, error) {
 func (c *clientStream) Trailer() grpcmetadata.MD { return grpcmetadata.MD(c.s.Trailer()) }
 func (c *clientStream) CloseSend() error         { return toGRPCError(c.s.CloseSend()) }
 func (c *clientStream) Context() context.Context { return c.s.Context() }
-func (c *clientStream) SendMsg(m any) error      { return toGRPCError(c.s.SendMsg(m)) }
+func (c *clientStream) SendMsg(m any) error {
+	err := toGRPCError(c.s.SendMsg(m))
+	if err != nil && !errors.Is(err, io.EOF) && c.stats != nil {
+		c.stopWatch()
+		c.stats.end(err, c.Trailer())
+	}
+	return err
+}
 
 // RecvMsg receives a message; the first error ends the call, and its
 // stats.

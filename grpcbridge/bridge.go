@@ -12,7 +12,8 @@
 //   - statuses, both ways, with their details as they are, including
 //     details of types the program does not know. A code above 16, which
 //     quic-rpc-go cannot send, becomes Unknown;
-//   - the call options grpc.Header, grpc.Trailer and grpc.StaticMethod,
+//   - the call options grpc.Header, grpc.Trailer, grpc.MaxCallRecvMsgSize,
+//     grpc.MaxCallSendMsgSize and grpc.StaticMethod,
 //     which generated code adds to every call. Any other call option fails
 //     the call with Internal rather than being ignored;
 //   - unary interceptors, chained as grpc.ChainUnaryInterceptor and
@@ -25,7 +26,7 @@
 //     before them. It gets the events Begin, then OutHeader with the
 //     outgoing metadata on the client or InHeader with the incoming
 //     metadata on the server, and End. A stream ends when RecvMsg returns
-//     an error or its context is done.
+//     an error, SendMsg returns a terminal local error, or its context is done.
 //
 // It does not provide the peer of a call (peer.FromContext finds nothing
 // and the addresses in the events are nil), the stats events of payloads,

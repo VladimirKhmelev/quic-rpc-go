@@ -29,6 +29,7 @@ var _ grpc.ServiceRegistrar = (*Server)(nil)
 type ServerOption func(*serverOptions)
 
 type serverOptions struct {
+	rpc         []rpc.ServerOption
 	unary       []grpc.UnaryServerInterceptor
 	stats       handlers
 	stopTimeout time.Duration
@@ -69,7 +70,7 @@ func NewServer(opts ...ServerOption) *Server {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	return &Server{s: rpc.NewServer(), unary: chainUnaryServer(o.unary), stats: o.stats, stopTimeout: o.stopTimeout}
+	return &Server{s: rpc.NewServer(o.rpc...), unary: chainUnaryServer(o.unary), stats: o.stats, stopTimeout: o.stopTimeout}
 }
 
 // chainUnaryServer makes one interceptor of several, the first outermost;
