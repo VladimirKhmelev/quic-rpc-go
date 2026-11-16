@@ -27,8 +27,9 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	// unaryInt and streamInt are the chains of interceptors, nil if empty.
-	unaryInt  UnaryServerInterceptor
-	streamInt StreamServerInterceptor
+	unaryInt         UnaryServerInterceptor
+	streamInt        StreamServerInterceptor
+	maxRecv, maxSend int
 
 	mu        sync.Mutex
 	services  map[string]*serviceInfo
@@ -65,9 +66,10 @@ type serviceInfo struct {
 	streams map[string]*StreamDesc
 }
 
-// NewServer returns a server with no services; opts add interceptors.
+// NewServer returns a server with no services; opts configure interceptors
+// and message limits.
 func NewServer(opts ...ServerOption) *Server {
-	var o serverOptions
+	o := serverOptions{maxRecv: frame.DefaultMaxMessageSize, maxSend: -1}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -77,6 +79,8 @@ func NewServer(opts ...ServerOption) *Server {
 		cancel:    cancel,
 		unaryInt:  chainUnaryServer(o.unary),
 		streamInt: chainStreamServer(o.stream),
+		maxRecv:   o.maxRecv,
+		maxSend:   o.maxSend,
 		services:  map[string]*serviceInfo{},
 		listeners: map[transport.Listener]struct{}{},
 		conns:     map[transport.Conn]*serverConn{},
@@ -341,7 +345,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleStream(conn transport.Conn, st transport.Stream) {
-	fr := frame.NewReader(st, frame.DefaultLimits())
+	fr := frame.NewReader(st, recvLimits(s.maxRecv))
 	req, err := call.ReadRequestHeaders(fr)
 	if err != nil {
 		code := call.ResetCode(err)
@@ -365,7 +369,7 @@ func (s *Server) handleStream(conn transport.Conn, st transport.Stream) {
 	stopWatch := context.AfterFunc(st.Context(), cancel)
 	defer stopWatch()
 
-	ss := &serverStream{st: st, recv: call.NewServerRecv(fr)}
+	ss := &serverStream{st: st, recv: call.NewServerRecv(fr), maxSend: s.maxSend}
 	ctx = metadata.NewIncomingContext(ctx, metadata.MD(req.MD))
 	ctx = context.WithValue(ctx, serverStreamKey{}, ss)
 	ss.ctx = ctx

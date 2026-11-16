@@ -24,6 +24,7 @@ type serverStream struct {
 	recv      *call.ServerRecv
 	desc      *StreamDesc // nil for unary methods
 	stopAbort func() bool
+	maxSend   int
 
 	aborted    atomic.Bool
 	gotMessage bool
@@ -84,6 +85,9 @@ func (ss *serverStream) SendMsg(m any) error {
 	defer ss.mu.Unlock()
 	if ss.ended || ss.aborted.Load() {
 		return ss.writeFailed(errors.New("the call is over"))
+	}
+	if err := checkSendSize(m, ss.maxSend); err != nil {
+		return err
 	}
 	buf := ss.wbuf[:0]
 	var err error
@@ -186,6 +190,12 @@ func (ss *serverStream) end(resp any, sendResp bool, st *status.Status) {
 		return
 	}
 	ss.ended = true
+	if sendResp && st == nil {
+		st = status.Convert(checkSendSize(resp, ss.maxSend))
+		if st.Code() == codes.OK {
+			st = nil
+		}
+	}
 
 	buf := ss.wbuf[:0]
 	if !ss.headerSent && ss.header.Len() > 0 {
