@@ -24,25 +24,26 @@ func httpVersion(t Transport) int {
 }
 
 type connectClient struct {
-	http  *httpgrpc.Client
-	bench benchv1connect.BenchClient
+	http   *httpgrpc.Client
+	bench  benchv1connect.BenchClient
+	limits MessageLimits
 }
 
-func dialConnect(t Transport, addr string, tlsConf *tls.Config) (*connectClient, error) {
+func dialConnect(t Transport, addr string, tlsConf *tls.Config, limits MessageLimits) (*connectClient, error) {
 	hc, err := httpgrpc.NewClient(addr, tlsConf, httpVersion(t))
 	if err != nil {
 		return nil, err
 	}
 	client := connect.NewClient(connecthttp.NewTransport(&http.Client{Transport: hc}, "https://"+addr,
-		connecthttp.WithGRPC(), connecthttp.WithCompressors(), connecthttp.WithReadMaxBytes(4<<20)))
-	return &connectClient{http: hc, bench: benchv1connect.NewBenchClient(client)}, nil
+		connecthttp.WithGRPC(), connecthttp.WithCompressors(), connecthttp.WithReadMaxBytes(limits.MaxRecvMsgBytes), connecthttp.WithSendMaxBytes(limits.MaxSendMsgBytes)))
+	return &connectClient{limits: limits, http: hc, bench: benchv1connect.NewBenchClient(client)}, nil
 }
 
 func (c *connectClient) Connect(ctx context.Context) error { return c.result(ctx, c.http.Connect(ctx)) }
 func (c *connectClient) Close() error                      { return c.http.Close() }
 
 func (c *connectClient) Call(ctx context.Context, payload []byte, respSize int) (int, error) {
-	size, err := checkSize(respSize)
+	size, err := checkSize(respSize, c.limits.MaxPayload())
 	if err != nil {
 		return 0, err
 	}
@@ -110,10 +111,10 @@ func (e connectEcho) Recv() (uint64, int, error) {
 }
 
 // connectService is exactly the same handler for HTTP/2 and HTTP/3.
-type connectService struct{}
+type connectService struct{ responses }
 
-func (connectService) Call(_ context.Context, req *benchv1.CallRequest) (*benchv1.CallResponse, error) {
-	payload, err := response(req.ResponseSize)
+func (s connectService) Call(_ context.Context, req *benchv1.CallRequest) (*benchv1.CallResponse, error) {
+	payload, err := s.response(req.ResponseSize)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error())
 	}
@@ -135,11 +136,11 @@ func (connectService) Echo(_ context.Context, s benchv1connect.BenchEchoServerSt
 	}
 }
 
-func listenConnect(t Transport, addr string, tlsConf *tls.Config) (*httpgrpc.Server, error) {
+func listenConnect(t Transport, addr string, tlsConf *tls.Config, limits MessageLimits) (*httpgrpc.Server, error) {
 	srv := connect.NewServer()
-	benchv1connect.RegisterBenchHandler(srv, connectService{})
+	benchv1connect.RegisterBenchHandler(srv, connectService{responses: newResponses(limits)})
 	mux := http.NewServeMux()
-	connecthttp.Mount(mux, srv, connecthttp.WithCompressors(), connecthttp.WithReadMaxBytes(4<<20))
+	connecthttp.Mount(mux, srv, connecthttp.WithCompressors(), connecthttp.WithReadMaxBytes(limits.MaxRecvMsgBytes), connecthttp.WithSendMaxBytes(limits.MaxSendMsgBytes))
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || (media != "application/grpc" && media != "application/grpc+proto") {

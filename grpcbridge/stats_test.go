@@ -230,3 +230,26 @@ func countPrefix(events []string, prefix string) int {
 	}
 	return n
 }
+
+// A rejected local message finishes the call even when the caller does not
+// receive after SendMsg fails. Its End must retain ResourceExhausted once.
+func TestSendLimitStats(t *testing.T) {
+	var log eventLog
+	cc, _ := serve(t, nil, nil, grpcbridge.WithStatsHandler(&recorder{"client", &log}), grpcbridge.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(0)))
+	cs, err := cc.NewStream(ctx(t), &echoDesc.Streams[0], repeatMethod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.SendMsg(wrapperspb.String("x")); grpcstatus.Code(err) != grpccodes.ResourceExhausted {
+		t.Fatal(err)
+	}
+	if events := log.take(); slices.Index(events, "client end ResourceExhausted []") < 0 {
+		t.Fatalf("missing local failure End: %v", events)
+	}
+	if err := cs.RecvMsg(new(wrapperspb.StringValue)); grpcstatus.Code(err) != grpccodes.ResourceExhausted {
+		t.Fatal(err)
+	}
+	if events := log.take(); len(events) != 0 {
+		t.Fatalf("repeated End: %v", events)
+	}
+}

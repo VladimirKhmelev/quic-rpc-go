@@ -34,7 +34,7 @@ func TestPoolSeries(t *testing.T) {
 	if err := json.Unmarshal(bytes, &saved); err != nil {
 		t.Fatal(err)
 	}
-	want := common.ClientOptions{PoolSize: 2, PoolPolicy: "round-robin"}
+	want := common.ClientOptions{PoolSize: 2, PoolPolicy: "round-robin", MessageLimits: common.MessageLimits{MaxRecvMsgBytes: 4 << 20}}
 	if saved.Matrix.Variants[1].ClientOptions != want {
 		t.Fatal("matrix lost pool settings")
 	}
@@ -70,6 +70,8 @@ func TestLegacySeriesConnectionSetup(t *testing.T) {
 			fields := item.(map[string]any)
 			delete(fields, "pool_size")
 			delete(fields, "pool_policy")
+			delete(fields, "max_recv_msg_bytes")
+			delete(fields, "max_send_msg_bytes")
 		}
 	}
 	remove(stored["matrix"].(map[string]any)["variants"].([]any))

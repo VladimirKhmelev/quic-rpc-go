@@ -8,9 +8,11 @@ type CallOption interface {
 }
 
 type callInfo struct {
-	header     *metadata.MD
-	trailer    *metadata.MD
-	idempotent bool
+	maxRecv, maxSend int
+	sendLimitSet     bool
+	header           *metadata.MD
+	trailer          *metadata.MD
+	idempotent       bool
 }
 
 type callOptionFunc func(*callInfo)

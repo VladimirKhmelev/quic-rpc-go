@@ -124,6 +124,8 @@ func run(args []string) (int, error) {
 		transport := fs.String("transport", "", "serve with `TRANSPORT`: quic, grpc-h2, grpc-h2-pool, grpc-h3 or connect-h2")
 		addr := fs.String("addr", "", "listen on `HOST:PORT`")
 		certsDir := fs.String("certs", "", "read the certificates from `DIR`")
+		var limits common.MessageLimits
+		messageFlags(fs, &limits)
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2, nil // flag has printed the error
 		}
@@ -134,9 +136,14 @@ func run(args []string) (int, error) {
 		if err != nil {
 			return 2, fmt.Errorf("%w: %w", errUsage, err)
 		}
-		return serve(t, *addr, *certsDir)
+		limits, err = limits.Resolve()
+		if err != nil {
+			return 2, fmt.Errorf("%w: %w", errUsage, err)
+		}
+		return serve(t, *addr, *certsDir, limits)
 	case "load":
 		var c loadConfig
+		messageFlags(fs, &c.limits)
 		fs.StringVar(&c.transport, "transport", "", "call with `TRANSPORT`: quic, grpc-h2, grpc-h2-pool, grpc-h3 or connect-h2")
 		fs.StringVar(&c.addr, "addr", "", "call the server at `HOST:PORT`")
 		fs.StringVar(&c.certs, "certs", "", "read the certificates from `DIR`")
@@ -161,6 +168,7 @@ func run(args []string) (int, error) {
 		return load(c)
 	case "run":
 		var c runConfig
+		messageFlags(fs, &c.limits)
 		fs.StringVar(&c.transport, "transport", "", "serve and call with `TRANSPORT`: quic, grpc-h2, grpc-h2-pool, grpc-h3 or connect-h2")
 		fs.StringVar(&c.load, "load", "", "run load profile `NAME`")
 		fs.StringVar(&c.network, "profile", netns.None.Name, "apply network profile `NAME`")
@@ -211,6 +219,7 @@ func run(args []string) (int, error) {
 
 // runConfig is the command line of run.
 type runConfig struct {
+	limits                                              common.MessageLimits
 	transport, load, network, tcp, profiles, loads, out string
 	serverCPUs, clientCPUs                              string
 	seed                                                uint64
@@ -222,9 +231,15 @@ type runConfig struct {
 
 // loadConfig is the command line of load.
 type loadConfig struct {
+	limits                                      common.MessageLimits
 	transport, addr, certs, profile, loads, out string
 	cfg                                         loadgen.Config
 	poolSize                                    int
+}
+
+func messageFlags(fs *flag.FlagSet, limits *common.MessageLimits) {
+	fs.IntVar(&limits.MaxRecvMsgBytes, "max-recv-msg-bytes", 4<<20, "maximum serialized protobuf message received, in bytes")
+	fs.IntVar(&limits.MaxSendMsgBytes, "max-send-msg-bytes", 0, "maximum serialized protobuf message sent, in bytes; 0 is unlimited")
 }
 
 // Omission selects the transport default; an explicit size must be positive.
@@ -243,7 +258,7 @@ func load(c loadConfig) (int, error) {
 	if err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
-	options, err := (common.ClientOptions{PoolSize: c.poolSize}).Resolve(t)
+	options, err := (common.ClientOptions{PoolSize: c.poolSize, MessageLimits: c.limits}).Resolve(t)
 	if err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
@@ -269,6 +284,7 @@ func load(c loadConfig) (int, error) {
 	ev := newEvents(os.Stdout)
 	tlsConf := p.Client.Clone()
 	tlsConf.VerifyConnection = ev.verify
+	c.cfg.MessageLimits = options.MessageLimits
 	c.cfg.Dial = func() (common.Client, error) { return common.Dial(t, c.addr, tlsConf, options) }
 	c.cfg.OnPhase = ev.phase
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -288,7 +304,7 @@ func load(c loadConfig) (int, error) {
 	return 0, runErr
 }
 
-func serve(t common.Transport, addr, certsDir string) (int, error) {
+func serve(t common.Transport, addr, certsDir string, limits common.MessageLimits) (int, error) {
 	b, err := certs.Load(certsDir)
 	if err != nil {
 		return 1, err
@@ -299,7 +315,7 @@ func serve(t common.Transport, addr, certsDir string) (int, error) {
 	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	srv, err := common.Listen(t, addr, p.Server)
+	srv, err := common.Listen(t, addr, p.Server, limits)
 	if err != nil {
 		return 1, err
 	}

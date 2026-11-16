@@ -43,8 +43,9 @@ type StreamClientInterceptor func(ctx context.Context, desc *StreamDesc, cc *Cli
 type ServerOption func(*serverOptions)
 
 type serverOptions struct {
-	unary  []UnaryServerInterceptor
-	stream []StreamServerInterceptor
+	maxRecv, maxSend int
+	unary            []UnaryServerInterceptor
+	stream           []StreamServerInterceptor
 }
 
 // ChainUnaryInterceptor adds interceptors to unary calls. Interceptors of
@@ -63,8 +64,9 @@ func ChainStreamInterceptor(interceptors ...StreamServerInterceptor) ServerOptio
 type DialOption func(*dialOptions)
 
 type dialOptions struct {
-	unary  []UnaryClientInterceptor
-	stream []StreamClientInterceptor
+	defaults []CallOption
+	unary    []UnaryClientInterceptor
+	stream   []StreamClientInterceptor
 }
 
 // WithChainUnaryInterceptor adds interceptors to unary calls. Interceptors

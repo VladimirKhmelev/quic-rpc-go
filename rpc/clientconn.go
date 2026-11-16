@@ -40,6 +40,7 @@ type ClientConn struct {
 	// unaryInt and streamInt are the chains of interceptors, nil if empty.
 	unaryInt  UnaryClientInterceptor
 	streamInt StreamClientInterceptor
+	defaults  []CallOption
 
 	mu sync.Mutex
 	// conn takes new calls; nil before the first dial and after GOAWAY.
@@ -67,7 +68,8 @@ type connection struct {
 
 var _ ClientConnInterface = (*ClientConn)(nil)
 
-// NewClient returns a ClientConn that dials with d; opts add interceptors.
+// NewClient returns a ClientConn that dials with d; opts configure interceptors
+// and default call options.
 // It does not dial yet.
 func NewClient(d transport.Dialer, opts ...DialOption) *ClientConn {
 	var o dialOptions
@@ -78,6 +80,7 @@ func NewClient(d transport.Dialer, opts ...DialOption) *ClientConn {
 		dialer:    d,
 		unaryInt:  chainUnaryClient(o.unary),
 		streamInt: chainStreamClient(o.stream),
+		defaults:  o.defaults,
 		conns:     map[*connection]struct{}{},
 		done:      make(chan struct{}),
 	}
@@ -240,6 +243,9 @@ var unaryStreamDesc = StreamDesc{}
 // Invoke performs a unary call through the interceptors: it sends args and
 // receives the response into reply.
 func (cc *ClientConn) Invoke(ctx context.Context, method string, args, reply any, opts ...CallOption) error {
+	if len(cc.defaults) > 0 {
+		opts = append(append([]CallOption(nil), cc.defaults...), opts...)
+	}
 	if cc.unaryInt != nil {
 		return cc.unaryInt(ctx, method, args, reply, cc, invoke, opts...)
 	}
@@ -271,6 +277,9 @@ func invoke(ctx context.Context, method string, args, reply any, cc *ClientConn,
 // NewStream starts a streaming call described by desc, through the
 // interceptors.
 func (cc *ClientConn) NewStream(ctx context.Context, desc *StreamDesc, method string, opts ...CallOption) (ClientStream, error) {
+	if len(cc.defaults) > 0 {
+		opts = append(append([]CallOption(nil), cc.defaults...), opts...)
+	}
 	if cc.streamInt != nil {
 		return cc.streamInt(ctx, desc, cc, method, newClientStream, opts...)
 	}
@@ -293,6 +302,14 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 		return nil, status.FromContextError(err).Err()
 	}
 	ci := newCallInfo(opts)
+	if ci.maxRecv < 0 || ci.sendLimitSet && ci.maxSend < 0 {
+		return nil, status.Error(codes.InvalidArgument, "rpc: message size must be nonnegative")
+	}
+	if unary {
+		if err := checkSendSize(req, ci.maxSend); err != nil {
+			return nil, err
+		}
+	}
 	c, st, err := cc.openStream(ctx, ci.idempotent)
 	if err != nil {
 		return nil, err
@@ -333,7 +350,7 @@ func (cc *ClientConn) newStream(ctx context.Context, desc *StreamDesc, method st
 		info:        ci,
 		headerReady: make(chan struct{}),
 	}
-	cs.recv = call.NewClientRecv(frame.NewReader(st, frame.DefaultLimits()), cs.noteHeader)
+	cs.recv = call.NewClientRecv(frame.NewReader(st, recvLimits(ci.maxRecv)), cs.noteHeader)
 	cs.stopCancel = context.AfterFunc(ctx, func() {
 		st.CancelWrite(transport.Cancelled)
 		st.CancelRead(transport.Cancelled)
@@ -389,7 +406,7 @@ func (cc *ClientConn) openError(ctx context.Context, err error) error {
 }
 
 func newCallInfo(opts []CallOption) callInfo {
-	var ci callInfo
+	ci := callInfo{maxRecv: frame.DefaultMaxMessageSize, maxSend: -1}
 	for _, o := range opts {
 		o.apply(&ci)
 	}

@@ -26,6 +26,7 @@ type clientStream struct {
 	st           transport.Stream
 	recv         *call.ClientRecv
 	info         callInfo
+	sendErr      atomic.Pointer[status.Status]
 	stopCancel   func() bool
 
 	sendMu sync.Mutex // serializes SendMsg and CloseSend
@@ -57,6 +58,21 @@ func (cs *clientStream) SendMsg(m any) error {
 	defer cs.sendMu.Unlock()
 	if cs.ended.Load() || cs.sendClosed.Load() {
 		return io.EOF
+	}
+	if err := checkSendSize(m, cs.info.maxSend); err != nil {
+		// Reset before taking recvMu: a concurrent receiver may hold it
+		// while waiting for data. Preserve this local failure on that path.
+		st := status.Convert(err)
+		cs.sendErr.Store(st)
+		cs.st.CancelWrite(transport.Cancelled)
+		cs.st.CancelRead(transport.Cancelled)
+		cs.recvMu.Lock()
+		if cs.finalErr == nil {
+			cs.finish(st)
+			cs.finalErr = err
+		}
+		cs.recvMu.Unlock()
+		return err
 	}
 	buf, err := call.AppendMessage(cs.wbuf[:0], m)
 	if err != nil {
@@ -144,6 +160,9 @@ func (cs *clientStream) fail(st *status.Status, code transport.ErrorCode) error 
 func (cs *clientStream) statusFor(err error) *status.Status {
 	if ctxErr := cs.ctx.Err(); ctxErr != nil {
 		return status.FromContextError(ctxErr)
+	}
+	if st := cs.sendErr.Load(); st != nil {
+		return st
 	}
 	if _, ok := errors.AsType[*transport.ConnError](err); ok && cs.cc.isClosed() {
 		return status.Convert(errClientConnClosing)

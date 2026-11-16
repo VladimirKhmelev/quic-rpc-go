@@ -89,6 +89,13 @@ func parseMatrix(data []byte, networks []netns.Profile, loads []loadgen.Profile)
 			errs = append(errs, fmt.Errorf("variant %s: %w", v.Name, err))
 		} else {
 			v.ClientOptions = options
+			for _, name := range m.Loads {
+				if p, err := loadgen.Lookup(loads, name); err == nil {
+					if err := p.Validate(options.MessageLimits); err != nil {
+						errs = append(errs, fmt.Errorf("variant %s: %w", v.Name, err))
+					}
+				}
+			}
 		}
 		if _, err := netns.ParseTCP(v.TCP); err != nil {
 			errs = append(errs, fmt.Errorf("variant %s: %w", v.Name, err))
@@ -399,10 +406,17 @@ func runSeries(ctx context.Context, c seriesConfig, dir string, s seriesFile, re
 	return 0, nil
 }
 
+func messageArgs(l common.MessageLimits) []string {
+	// Historical plans omit limits. Resolve supplies their unchanged defaults.
+	l, _ = l.Resolve()
+	return []string{"-max-recv-msg-bytes", strconv.Itoa(l.MaxRecvMsgBytes), "-max-send-msg-bytes", strconv.Itoa(l.MaxSendMsgBytes)}
+}
+
 // runArgs is the command line of bench run for a run of the series.
 func runArgs(m matrix, r plannedRun, dir string, strict bool) []string {
 	args := []string{"run", "-transport", r.Transport, "-tcp", r.TCP, "-profile", r.Network, "-load", r.Load,
 		"-seed", strconv.FormatUint(r.Seed, 10), "-warmup", m.Warmup.String(), "-duration", m.Duration.String(), "-out", dir}
+	args = append(args, messageArgs(r.MessageLimits)...)
 	if r.Transport == string(common.GRPCH2Pool) {
 		args = append(args, "-pool-size", strconv.Itoa(r.PoolSize))
 	}

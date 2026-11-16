@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -58,28 +59,40 @@ type Reconnect struct {
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // Validate reports values the generator cannot run.
-func (p Profile) Validate() error {
+func (p Profile) Validate(limits ...common.MessageLimits) error {
+	var l common.MessageLimits
+	if len(limits) > 1 {
+		return errors.New("load profile: want at most one MessageLimits")
+	}
+	if len(limits) == 1 {
+		l = limits[0]
+	}
+	l, err := l.Resolve()
+	if err != nil {
+		return err
+	}
+	maxPayload := l.MaxPayload()
 	var errs []error
 	check := func(ok bool, format string, args ...any) {
 		if !ok {
 			errs = append(errs, fmt.Errorf(format, args...))
 		}
 	}
-	size := func(n int) bool { return n >= 0 && n <= common.MaxResponse }
+	size := func(n int) bool { return n >= 0 && n <= maxPayload }
 	check(nameRE.MatchString(p.Name), "name %q: want lowercase letters, digits and dashes", p.Name)
 	check(p.Small != nil && p.Small.Rate > 0 || p.Heavy != nil || p.Echo != nil || p.Reconnect != nil, "no calls")
 	if s := p.Small; s != nil {
 		check(s.Rate >= 0, "small rate %v is negative", s.Rate)
 		check(size(s.MinSize) && size(s.MaxSize) && s.MinSize <= s.MaxSize,
-			"small sizes %d to %d: want 0 ≤ min ≤ max ≤ %d", s.MinSize, s.MaxSize, common.MaxResponse)
+			"small sizes %d to %d: want 0 ≤ min ≤ max ≤ %d", s.MinSize, s.MaxSize, maxPayload)
 	}
 	if h := p.Heavy; h != nil {
-		check(h.Size > 0 && size(h.Size), "heavy size %d: want 1 to %d", h.Size, common.MaxResponse)
+		check(h.Size > 0 && size(h.Size), "heavy size %d: want 1 to %d", h.Size, maxPayload)
 		check(h.Every > 0, "heavy period %v is not positive", h.Every)
 	}
 	if e := p.Echo; e != nil {
 		check(e.Rate > 0, "echo rate %v is not positive", e.Rate)
-		check(size(e.Size), "echo size %d: want 0 to %d", e.Size, common.MaxResponse)
+		check(size(e.Size), "echo size %d: want 0 to %d", e.Size, maxPayload)
 	}
 	if r := p.Reconnect; r != nil {
 		check(r.Every > 0 && r.Calls > 0, "reconnect: want a positive period and calls, got %v and %d", r.Every, r.Calls)
@@ -96,7 +109,8 @@ func (p Profile) Validate() error {
 
 // ParseProfiles reads load profiles in the format of
 // testbed/scenarios/load.yaml. Unknown fields are errors, and every profile
-// must be valid and have a unique name.
+// must be structurally valid and have a unique name. Run validates sizes
+// against its effective limits; parsing permits up to the benchmark ceiling.
 func ParseProfiles(data []byte) ([]Profile, error) {
 	var file struct {
 		Loads []Profile `yaml:"loads"`
@@ -108,7 +122,7 @@ func ParseProfiles(data []byte) ([]Profile, error) {
 	}
 	seen := map[string]bool{}
 	for _, p := range file.Loads {
-		if err := p.Validate(); err != nil {
+		if err := p.Validate(common.MessageLimits{MaxRecvMsgBytes: math.MaxInt32}); err != nil {
 			return nil, err
 		}
 		if seen[p.Name] {

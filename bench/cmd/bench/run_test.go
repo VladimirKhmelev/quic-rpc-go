@@ -158,6 +158,25 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// TestRunEightMiB checks limit propagation through the orchestrator, both
+// child processes, the actual network testbed and the saved metadata.
+func TestRunEightMiB(t *testing.T) {
+	for _, tr := range common.Transports {
+		t.Run(string(tr), func(t *testing.T) {
+			dir, m := runBench(t, "-transport", string(tr), "-load", "heavy-8m",
+				"-max-recv-msg-bytes", "9437184", "-max-send-msg-bytes", "9437184",
+				"-server-cpus", "", "-client-cpus", "")
+			if m.MaxRecvMsgBytes != 9<<20 || m.MaxSendMsgBytes != 9<<20 {
+				t.Fatalf("message limit metadata: %+v", m.MessageLimits)
+			}
+			calls := readCalls(t, dir)
+			if len(calls) != 1 || calls[0].Code != 0 || calls[0].RespBytes != 8<<20 || calls[0].Warmup {
+				t.Fatalf("8 MiB calls: %+v", calls)
+			}
+		})
+	}
+}
+
 // A reconnect event creates a whole pool. The command must forward its size
 // and record all ten calls under the new logical pool ID.
 func TestRunPoolReconnect(t *testing.T) {
