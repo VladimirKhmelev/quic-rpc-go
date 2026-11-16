@@ -54,15 +54,20 @@ func ParseTransport(s string) (Transport, error) {
 	return "", fmt.Errorf("transport %q: want %s", s, strings.Join(names, ", "))
 }
 
-// ClientOptions records the effective connection setup. Zero values select
+// ClientOptions records the effective connection and message setup. Zero values select
 // four round-robin connections for grpc-h2-pool, and one connection otherwise.
 type ClientOptions struct {
-	PoolSize   int    `json:"pool_size" yaml:"pool_size"`
-	PoolPolicy string `json:"pool_policy" yaml:"pool_policy"`
+	MessageLimits `yaml:",inline"`
+	PoolSize      int    `json:"pool_size" yaml:"pool_size"`
+	PoolPolicy    string `json:"pool_policy" yaml:"pool_policy"`
 }
 
 // Resolve validates options and fills defaults without changing the receiver.
 func (o ClientOptions) Resolve(t Transport) (ClientOptions, error) {
+	var err error
+	if o.MessageLimits, err = o.MessageLimits.Resolve(); err != nil {
+		return ClientOptions{}, err
+	}
 	if _, err := ParseTransport(string(t)); err != nil {
 		return ClientOptions{}, err
 	}
@@ -121,7 +126,8 @@ type Server interface {
 
 // Dial returns a client of transport t for the server at addr ("host:port").
 // It does not connect yet. Options select the pool size; omission uses
-// DefaultSize for grpc-h2-pool and one connection for other transports.
+// DefaultSize for grpc-h2-pool and one connection for other transports;
+// message limits default to 4 MiB received and unlimited sent.
 func Dial(t Transport, addr string, tlsConf *tls.Config, options ...ClientOptions) (Client, error) {
 	var o ClientOptions
 	if len(options) > 1 {
@@ -136,26 +142,31 @@ func Dial(t Transport, addr string, tlsConf *tls.Config, options ...ClientOption
 	}
 	switch t {
 	case QUIC:
-		return dialQUIC(addr, tlsConf), nil
+		return dialQUIC(addr, tlsConf, o.MessageLimits), nil
 	case GRPCH2:
-		return dialGRPC(addr, tlsConf)
+		return dialGRPC(addr, tlsConf, o.MessageLimits)
 	case GRPCH2Pool:
-		return dialGRPCPool(addr, tlsConf, o.PoolSize)
+		return dialGRPCPool(addr, tlsConf, o.PoolSize, o.MessageLimits)
 	case GRPCH3, ConnectH2:
-		return dialConnect(t, addr, tlsConf)
+		return dialConnect(t, addr, tlsConf, o.MessageLimits)
 	}
 	return nil, fmt.Errorf("common: unknown transport %q", t)
 }
 
 // Listen starts a server of transport t on addr; port 0 picks a free one.
-func Listen(t Transport, addr string, tlsConf *tls.Config) (Server, error) {
+// Optional message limits have the same defaults as Dial.
+func Listen(t Transport, addr string, tlsConf *tls.Config, limits ...MessageLimits) (Server, error) {
+	l, err := resolveMessageLimits(limits)
+	if err != nil {
+		return nil, err
+	}
 	switch t {
 	case QUIC:
-		return listenQUIC(addr, tlsConf)
+		return listenQUIC(addr, tlsConf, l)
 	case GRPCH2, GRPCH2Pool:
-		return listenGRPC(addr, tlsConf)
+		return listenGRPC(addr, tlsConf, l)
 	case GRPCH3, ConnectH2:
-		return listenConnect(t, addr, tlsConf)
+		return listenConnect(t, addr, tlsConf, l)
 	}
 	return nil, fmt.Errorf("common: unknown transport %q", t)
 }

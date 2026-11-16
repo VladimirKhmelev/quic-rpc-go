@@ -24,22 +24,31 @@ type grpcClient struct {
 	}
 	bench   benchv1.BenchClient
 	connect func(context.Context) error
+	limits  MessageLimits
 }
 
-func dialGRPC(addr string, tlsConf *tls.Config) (*grpcClient, error) {
-	cc, err := h2.Dial(addr, tlsConf)
+func dialGRPC(addr string, tlsConf *tls.Config, limits MessageLimits) (*grpcClient, error) {
+	cc, err := h2.Dial(addr, tlsConf, grpc.WithDefaultCallOptions(grpcMessageOptions(limits)...))
 	if err != nil {
 		return nil, err
 	}
-	return &grpcClient{cc: cc, bench: benchv1.NewBenchClient(cc), connect: func(ctx context.Context) error { return h2.Connect(ctx, cc) }}, nil
+	return &grpcClient{limits: limits, cc: cc, bench: benchv1.NewBenchClient(cc), connect: func(ctx context.Context) error { return h2.Connect(ctx, cc) }}, nil
 }
 
-func dialGRPCPool(addr string, tlsConf *tls.Config, size int) (*grpcClient, error) {
-	p, err := h2pool.Dial(addr, tlsConf, size)
+func dialGRPCPool(addr string, tlsConf *tls.Config, size int, limits MessageLimits) (*grpcClient, error) {
+	p, err := h2pool.Dial(addr, tlsConf, size, grpc.WithDefaultCallOptions(grpcMessageOptions(limits)...))
 	if err != nil {
 		return nil, err
 	}
-	return &grpcClient{cc: p, bench: benchv1.NewBenchClient(p), connect: p.Connect}, nil
+	return &grpcClient{limits: limits, cc: p, bench: benchv1.NewBenchClient(p), connect: p.Connect}, nil
+}
+
+func grpcMessageOptions(l MessageLimits) []grpc.CallOption {
+	opts := []grpc.CallOption{grpc.MaxCallRecvMsgSize(l.MaxRecvMsgBytes)}
+	if l.MaxSendMsgBytes > 0 {
+		opts = append(opts, grpc.MaxCallSendMsgSize(l.MaxSendMsgBytes))
+	}
+	return opts
 }
 
 // Connect waits until grpc-go reports the connection ready: the TCP and
@@ -50,7 +59,7 @@ func (c *grpcClient) Connect(ctx context.Context) error {
 }
 
 func (c *grpcClient) Call(ctx context.Context, payload []byte, respSize int) (int, error) {
-	size, err := checkSize(respSize)
+	size, err := checkSize(respSize, c.limits.MaxPayload())
 	if err != nil {
 		return 0, err
 	}
@@ -101,11 +110,12 @@ func grpcError(err error) error {
 
 // grpcService serves the service with grpc-go.
 type grpcService struct {
+	responses
 	benchv1.UnimplementedBenchServer
 }
 
-func (grpcService) Call(_ context.Context, req *benchv1.CallRequest) (*benchv1.CallResponse, error) {
-	payload, err := response(req.GetResponseSize())
+func (s grpcService) Call(_ context.Context, req *benchv1.CallRequest) (*benchv1.CallResponse, error) {
+	payload, err := s.response(req.GetResponseSize())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -121,13 +131,17 @@ type grpcServer struct {
 	addr net.Addr
 }
 
-func listenGRPC(addr string, tlsConf *tls.Config) (*grpcServer, error) {
+func listenGRPC(addr string, tlsConf *tls.Config, limits MessageLimits) (*grpcServer, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
-	s := h2.NewServer(tlsConf)
-	benchv1.RegisterBenchServer(s, grpcService{})
+	opts := []grpc.ServerOption{grpc.MaxRecvMsgSize(limits.MaxRecvMsgBytes)}
+	if limits.MaxSendMsgBytes > 0 {
+		opts = append(opts, grpc.MaxSendMsgSize(limits.MaxSendMsgBytes))
+	}
+	s := h2.NewServer(tlsConf, opts...)
+	benchv1.RegisterBenchServer(s, grpcService{responses: newResponses(limits)})
 	go func() { _ = s.Serve(l) }()
 	return &grpcServer{srv: s, addr: l.Addr()}, nil
 }

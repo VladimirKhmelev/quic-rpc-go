@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 
@@ -23,6 +25,7 @@ type rpcClient struct {
 	dialer transport.Dialer
 	cc     *rpc.ClientConn
 	bench  benchv1quic.BenchClient
+	limits MessageLimits
 
 	mu    sync.Mutex
 	ready transport.Conn // set up by Connect, not yet taken by cc
@@ -31,14 +34,23 @@ type rpcClient struct {
 // NewRPCClient returns a client of quic-rpc-go over any transport, such as
 // the in-memory one of tests. It does not connect yet.
 func NewRPCClient(d transport.Dialer) Client {
-	c := &rpcClient{dialer: d}
-	c.cc = rpc.NewClient(c)
+	l, _ := (MessageLimits{}).Resolve()
+	return newRPCClient(d, l)
+}
+
+func newRPCClient(d transport.Dialer, l MessageLimits) Client {
+	c := &rpcClient{dialer: d, limits: l}
+	opts := []rpc.CallOption{rpc.MaxCallRecvMsgSize(l.MaxRecvMsgBytes)}
+	if l.MaxSendMsgBytes > 0 {
+		opts = append(opts, rpc.MaxCallSendMsgSize(l.MaxSendMsgBytes))
+	}
+	c.cc = rpc.NewClient(c, rpc.WithDefaultCallOptions(opts...))
 	c.bench = benchv1quic.NewBenchClient(c.cc)
 	return c
 }
 
-func dialQUIC(addr string, tlsConf *tls.Config) Client {
-	return NewRPCClient(&rpcquic.Dialer{Addr: addr, TLSConfig: tlsConf})
+func dialQUIC(addr string, tlsConf *tls.Config, l MessageLimits) Client {
+	return newRPCClient(&rpcquic.Dialer{Addr: addr, TLSConfig: tlsConf}, l)
 }
 
 // Dial hands the ClientConn the connection Connect set up, or dials anew.
@@ -72,7 +84,7 @@ func (c *rpcClient) Connect(ctx context.Context) error {
 }
 
 func (c *rpcClient) Call(ctx context.Context, payload []byte, respSize int) (int, error) {
-	size, err := checkSize(respSize)
+	size, err := checkSize(respSize, c.limits.MaxPayload())
 	if err != nil {
 		return 0, err
 	}
@@ -132,9 +144,9 @@ func quicError(err error) error {
 
 // checkSize checks a response size on the client, with the error the server
 // would return.
-func checkSize(respSize int) (uint32, error) {
-	if respSize < 0 || respSize > MaxResponse {
-		return 0, &StatusError{Code: uint32(codes.InvalidArgument), Message: errTooLarge.Error()}
+func checkSize(respSize, maxPayload int) (uint32, error) {
+	if respSize < 0 || respSize > math.MaxInt32 || respSize > maxPayload {
+		return 0, &StatusError{Code: uint32(codes.InvalidArgument), Message: fmt.Sprintf("response_size must be between 0 and %d", maxPayload)}
 	}
 	return uint32(respSize), nil
 }
@@ -144,13 +156,17 @@ type quicServer struct {
 	addr net.Addr
 }
 
-func listenQUIC(addr string, tlsConf *tls.Config) (*quicServer, error) {
+func listenQUIC(addr string, tlsConf *tls.Config, limits MessageLimits) (*quicServer, error) {
 	l, err := rpcquic.Listen(addr, tlsConf, nil)
 	if err != nil {
 		return nil, err
 	}
-	s := rpc.NewServer()
-	benchv1quic.RegisterBenchServer(s, quicService{})
+	opts := []rpc.ServerOption{rpc.MaxRecvMsgSize(limits.MaxRecvMsgBytes)}
+	if limits.MaxSendMsgBytes > 0 {
+		opts = append(opts, rpc.MaxSendMsgSize(limits.MaxSendMsgBytes))
+	}
+	s := rpc.NewServer(opts...)
+	benchv1quic.RegisterBenchServer(s, quicService{responses: newResponses(limits)})
 	go func() { _ = s.Serve(l) }()
 	return &quicServer{srv: s, addr: l.Addr()}, nil
 }

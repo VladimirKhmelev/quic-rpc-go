@@ -181,7 +181,7 @@ func TestSeries(t *testing.T) {
 		t.Errorf("runs %v, want the plan %v", got, ids(p))
 	}
 	for i, r := range p {
-		want := fmt.Sprintf("run -transport %s -tcp %s -profile %s -load small -seed %d -warmup 1s -duration 2s -out %s",
+		want := fmt.Sprintf("run -transport %s -tcp %s -profile %s -load small -seed %d -warmup 1s -duration 2s -out %s -max-recv-msg-bytes 4194304 -max-send-msg-bytes 0",
 			r.Transport, r.TCP, r.Network, r.Seed, filepath.Join(s.dir, r.ID))
 		if lines[2+i] != want {
 			t.Errorf("run %d: %q, want %q", i, lines[2+i], want)

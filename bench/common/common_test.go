@@ -44,6 +44,10 @@ type env struct {
 // forEach runs fn on a server and a client of every transport over
 // loopback.
 func forEach(t *testing.T, fn func(t *testing.T, e *env)) {
+	forEachLimits(t, common.MessageLimits{}, common.MessageLimits{}, fn)
+}
+
+func forEachLimits(t *testing.T, serverLimits, clientLimits common.MessageLimits, fn func(t *testing.T, e *env)) {
 	for _, tr := range common.Transports {
 		t.Run(string(tr), func(t *testing.T) {
 			p, err := certs.New("localhost", "127.0.0.1")
@@ -59,12 +63,12 @@ func forEach(t *testing.T, fn func(t *testing.T, e *env)) {
 			default:
 				e.wantALPN = "h2"
 			}
-			options, err := (common.ClientOptions{}).Resolve(tr)
+			options, err := (common.ClientOptions{MessageLimits: clientLimits}).Resolve(tr)
 			if err != nil {
 				t.Fatal(err)
 			}
 			e.connections = options.PoolSize
-			srv, err := common.Listen(tr, "127.0.0.1:0", p.Server)
+			srv, err := common.Listen(tr, "127.0.0.1:0", p.Server, serverLimits)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,7 +81,7 @@ func forEach(t *testing.T, fn func(t *testing.T, e *env)) {
 				e.alpn.Store(cs.NegotiatedProtocol)
 				return nil
 			}
-			if e.client, err = common.Dial(tr, srv.Addr().String(), clientTLS); err != nil {
+			if e.client, err = common.Dial(tr, srv.Addr().String(), clientTLS, options); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = e.client.Close() })
@@ -234,5 +238,67 @@ func TestParseTransport(t *testing.T) {
 	}
 	if common.Code(nil) != 0 || common.Code(errors.New("x")) != 2 {
 		t.Error("Code of nil or of a plain error")
+	}
+}
+
+func TestEightMiB(t *testing.T) {
+	limits := common.MessageLimits{MaxRecvMsgBytes: 9 << 20, MaxSendMsgBytes: 9 << 20}
+	forEachLimits(t, limits, limits, func(t *testing.T, e *env) {
+		const size = 8 << 20
+		if n, err := e.client.Call(ctx(t), make([]byte, size), size); err != nil || n != size {
+			t.Fatalf("8 MiB unary round trip: %d, %v", n, err)
+		}
+		stream, err := e.client.Echo(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sent := make(chan error, 1)
+		go func() { sent <- stream.Send(42, make([]byte, size)); _ = stream.CloseSend() }()
+		seq, n, err := stream.Recv()
+		if err != nil || seq != 42 || n != size {
+			t.Fatalf("8 MiB echo: %d, %d, %v", seq, n, err)
+		}
+		if err := <-sent; err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+			t.Fatalf("echo end: %v", err)
+		}
+	})
+}
+
+func TestMessageLimitRejections(t *testing.T) {
+	for _, direction := range []string{"server-recv", "server-send", "client-recv", "client-send"} {
+		t.Run(direction, func(t *testing.T) {
+			server, client := common.MessageLimits{}, common.MessageLimits{}
+			switch direction {
+			case "server-recv":
+				server.MaxRecvMsgBytes = 1024
+			case "server-send":
+				server.MaxSendMsgBytes = 1024
+			case "client-recv":
+				client.MaxRecvMsgBytes = 1024
+			case "client-send":
+				client.MaxSendMsgBytes = 1024
+			}
+			forEachLimits(t, server, client, func(t *testing.T, e *env) {
+				stream, err := e.client.Echo(ctx(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				sent := make(chan error, 1)
+				go func() { sent <- stream.Send(1, make([]byte, 1024)); _ = stream.CloseSend() }()
+				_, _, recvErr := stream.Recv()
+				sendErr := <-sent
+				// Client libraries differ in whether a local send failure is also
+				// returned by Receive. The operation must report ResourceExhausted.
+				if common.Code(sendErr) != 8 && common.Code(recvErr) != 8 {
+					t.Fatalf("oversized message: send=%v recv=%v", sendErr, recvErr)
+				}
+				if n, err := e.client.Call(ctx(t), nil, 10); err != nil || n != 10 {
+					t.Fatalf("call after rejection: %d, %v", n, err)
+				}
+			})
+		})
 	}
 }

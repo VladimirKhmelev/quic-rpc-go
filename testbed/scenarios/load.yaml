@@ -32,3 +32,7 @@ loads:
     description: Переподключение
     small: {min_size: 100, max_size: 1000}
     reconnect: {every: 5s, calls: 10}
+
+  - name: heavy-8m
+    description: Ответ 8 МиБ; требует явного увеличения лимита сообщений
+    heavy: {size: 8388608, every: 1s}

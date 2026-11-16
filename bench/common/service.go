@@ -13,22 +13,22 @@ import (
 	rpcstatus "github.com/VladimirKhmelev/quic-rpc-go/rpc/status"
 )
 
-// MaxResponse is the largest response Call can ask for: the 4 MiB message
-// limit of both libraries, less room for the framing of the message.
+// MaxResponse is the default maximum response payload: 4 MiB less room for
+// protobuf fields. Explicit message limits can raise this bound.
 const MaxResponse = 4<<20 - 64
 
-// zeros backs the payloads of responses. Marshaling copies it, so the
+// responses holds the shared zero-filled payloads. Marshaling copies them, so the
 // server allocates nothing but the message itself.
-var zeros = make([]byte, MaxResponse)
+type responses struct{ zeros []byte }
 
-var errTooLarge = fmt.Errorf("response_size above %d", MaxResponse)
+func newResponses(l MessageLimits) responses { return responses{zeros: make([]byte, l.MaxPayload())} }
 
 // response returns the payload of a response of size bytes.
-func response(size uint32) ([]byte, error) {
-	if size > MaxResponse {
-		return nil, errTooLarge
+func (r responses) response(size uint32) ([]byte, error) {
+	if uint64(size) > uint64(len(r.zeros)) {
+		return nil, fmt.Errorf("response_size above %d", len(r.zeros))
 	}
-	return zeros[:size], nil
+	return r.zeros[:size], nil
 }
 
 // echo sends back every message of a stream until the client's FIN.
@@ -52,11 +52,12 @@ func echo[S interface {
 
 // quicService serves the service with quic-rpc-go.
 type quicService struct {
+	responses
 	benchv1quic.UnimplementedBenchServer
 }
 
-func (quicService) Call(_ context.Context, req *benchv1.CallRequest) (*benchv1.CallResponse, error) {
-	payload, err := response(req.GetResponseSize())
+func (s quicService) Call(_ context.Context, req *benchv1.CallRequest) (*benchv1.CallResponse, error) {
+	payload, err := s.response(req.GetResponseSize())
 	if err != nil {
 		return nil, rpcstatus.Error(codes.InvalidArgument, err.Error())
 	}

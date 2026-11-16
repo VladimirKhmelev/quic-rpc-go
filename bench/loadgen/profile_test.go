@@ -31,6 +31,7 @@ func TestBundledProfiles(t *testing.T) {
 	want := map[string]Profile{
 		"small":       {Small: small},
 		"small-heavy": {Small: small, Heavy: &Heavy{Size: 1 << 20, Every: time.Second}},
+		"heavy-8m":    {Heavy: &Heavy{Size: 8 << 20, Every: time.Second}},
 		"bidi":        {Echo: &Echo{Rate: 20, Size: 200}},
 		"reconnect":   {Small: &Small{MinSize: 100, MaxSize: 1000}, Reconnect: &Reconnect{Every: 5 * time.Second, Calls: 10}},
 	}
@@ -183,5 +184,20 @@ func TestScheduleHeavyAndReconnect(t *testing.T) {
 		if ev.Conn != conn || ev.At != time.Duration(conn-1)*5*time.Second || (ev.Kind == KindConnect) != first {
 			t.Errorf("event %d: %+v", i, ev)
 		}
+	}
+}
+
+func TestRaisedProfileLimits(t *testing.T) {
+	p := bundled(t, "heavy-8m")
+	if err := p.Validate(); err == nil {
+		t.Fatal("8 MiB accepted with default limits")
+	}
+	limits := common.MessageLimits{MaxRecvMsgBytes: 9 << 20, MaxSendMsgBytes: 9 << 20}
+	if err := p.Validate(limits); err != nil {
+		t.Fatal(err)
+	}
+	limits.MaxSendMsgBytes = 8 << 20
+	if err := p.Validate(limits); err == nil {
+		t.Fatal("8 MiB payload accepted without protobuf overhead")
 	}
 }

@@ -1,0 +1,15 @@
+# Q-02 acceptance smoke: one 8 MiB response on every transport.
+# This checks size configuration, not comparative performance.
+name: messages-8m
+seed: 1
+repeats: 1
+warmup: 0s
+duration: 1200ms
+variants:
+  - {name: quic, transport: quic, tcp: aligned, max_recv_msg_bytes: 9437184, max_send_msg_bytes: 9437184}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned, max_recv_msg_bytes: 9437184, max_send_msg_bytes: 9437184}
+  - {name: grpc-h2-pool-4, transport: grpc-h2-pool, tcp: aligned, pool_size: 4, max_recv_msg_bytes: 9437184, max_send_msg_bytes: 9437184}
+  - {name: grpc-h3, transport: grpc-h3, tcp: aligned, max_recv_msg_bytes: 9437184, max_send_msg_bytes: 9437184}
+  - {name: connect-h2, transport: connect-h2, tcp: aligned, max_recv_msg_bytes: 9437184, max_send_msg_bytes: 9437184}
+networks: [base]
+loads: [heavy-8m]

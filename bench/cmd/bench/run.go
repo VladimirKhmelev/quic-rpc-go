@@ -69,7 +69,7 @@ func (r *runner) parse() (int, error) {
 	if r.transport, err = common.ParseTransport(r.c.transport); err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
-	if r.options, err = (common.ClientOptions{PoolSize: r.c.poolSize}).Resolve(r.transport); err != nil {
+	if r.options, err = (common.ClientOptions{PoolSize: r.c.poolSize, MessageLimits: r.c.limits}).Resolve(r.transport); err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
 	if r.tcp, err = netns.ParseTCP(r.c.tcp); err != nil {
@@ -92,6 +92,9 @@ func (r *runner) parse() (int, error) {
 	}
 	if r.load, err = loadgen.Lookup(loads, r.c.load); err != nil {
 		return 1, err
+	}
+	if err := r.load.Validate(r.options.MessageLimits); err != nil {
+		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
 	if r.c.strict {
 		if problems := env.Machine("/").Problems(); len(problems) > 0 {
@@ -250,7 +253,7 @@ type server struct {
 
 // startServer starts the server and waits until it listens.
 func (r *runner) startServer(addr, certsDir string) (*server, error) {
-	cmd, err := r.command(netns.Server, r.serverCPUs, "server.log", "server", "-transport", string(r.transport), "-addr", addr, "-certs", certsDir)
+	cmd, err := r.command(netns.Server, r.serverCPUs, "server.log", append([]string{"server", "-transport", string(r.transport), "-addr", addr, "-certs", certsDir}, messageArgs(r.options.MessageLimits)...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -338,6 +341,7 @@ func (r *runner) runLoad(ctx context.Context, s *netns.Stand, server int, addr, 
 		"-seed", strconv.FormatUint(r.c.seed, 10), "-warmup", r.c.warmup.String(), "-duration", r.c.measure.String(),
 		"-timeout", r.c.timeout.String(), "-out", filepath.Join(r.dir, "calls.csv"),
 	}
+	args = append(args, messageArgs(r.options.MessageLimits)...)
 	if r.transport == common.GRPCH2Pool {
 		args = append(args, "-pool-size", strconv.Itoa(r.options.PoolSize))
 	}

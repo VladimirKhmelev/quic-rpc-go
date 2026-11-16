@@ -23,8 +23,9 @@ const (
 
 // Config is one run of the generator.
 type Config struct {
-	Profile Profile
-	Seed    uint64
+	MessageLimits common.MessageLimits
+	Profile       Profile
+	Seed          uint64
 	// Calls due before Warmup are recorded as warm-up; the run lasts
 	// Warmup + Measure.
 	Warmup, Measure time.Duration
@@ -82,7 +83,7 @@ type runner struct {
 // fail are records with their status code. It lasts at least Warmup +
 // Measure, unless ctx ends.
 func Run(ctx context.Context, cfg Config) ([]Record, error) {
-	if err := cfg.Profile.Validate(); err != nil {
+	if err := cfg.Profile.Validate(cfg.MessageLimits); err != nil {
 		return nil, err
 	}
 	if cfg.Dial == nil || cfg.Measure <= 0 || cfg.Warmup < 0 {
