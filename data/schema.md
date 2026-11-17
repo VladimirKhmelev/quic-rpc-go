@@ -59,6 +59,55 @@
 make plots ANALYSIS=data/pilot
 ```
 
+## Сбор micro (Q-04)
+
+Отдельный от `bench series` формат `make bench-micro`. По умолчанию каталог
+`out/micro-<время UTC>/`, либо новый `--out DIR`. Он содержит два семейства:
+`overhead` (4 эталона × 2 шаблона × 4 размера) и `reconnect` (2 RTT × 3 режима).
+Матрицы проверяются полностью в каждом процессе; старые двухрежимные выводы
+RPC-14 не выдаются за новый формат. Возобновление и перезапись не предусмотрены.
+
+| Путь | Содержание |
+| --- | --- |
+| `meta.json` | ready marker, `schema_version=1`, `kind=rpc-micro`, UTC начала/окончания, `config`, `environment`, `git`, `builds`, `jobs`, SHA-256 исходников и архива |
+| `raw/<order>-<family>.txt` | объединённый stdout/stderr benchmark-процесса, обычный текст Go benchmark |
+| `provenance/` | commit/status, Go version/env, `modules-root.txt`, `modules-rpc.txt`, `modules-grpcbridge.txt`, команды сборки в `meta.builds` и их выводы, build info, `sources.json` (путь → SHA-256), `sources.tar.gz` |
+| `bin/` | два собранных без race detector benchmark-бинарника |
+| `failed.json` | причина и накопленные метаданные незавершённого сбора; сырые выводы остаются, `meta.json` отсутствует |
+| `pending.json` | временные метаданные для проверки всей матрицы перед атомарным переименованием в `meta.json` |
+| `analysis/benchmarks.csv` | одна строка на случай и повтор: параметры, число операций, исходные метрики |
+| `analysis/summary.csv` | одна строка на случай и метрику: `repeats`, `median`, `lo`, `hi` |
+| `analysis/early_gain.csv` | на каждый `rtt_ms`: `repeats`, парный выигрыш `gain_ms`, `gain_lo_ms`, `gain_hi_ms`, `gain_rtts` |
+| `analysis/report.md` | сводка с условиями и ограничениями |
+
+`config`: `repeats`, `cpu` (GOMAXPROCS), `benchtime` (только overhead),
+`reconnect_iterations`, `seed`. `jobs` содержит `family`, `repeat` с 1,
+`order` с 1, команду массивом аргументов, cwd, UTC начала, длительность в
+секундах, returncode, относительный путь `raw` и `raw_sha256`. Сбой процесса
+или таймаут оставляет вывод и причину в `failed.json`; провалившийся процесс
+может не входить в список успешно собранных `jobs`. Источники сохраняются
+из трёх модулей и Python: Go/proto/Python/YAML, module-файлы, Makefile,
+requirements и descriptor fixtures, включая новые неигнорируемые файлы.
+Полное окружение процесса и игнорируемые секреты не копируются.
+
+Группировка таблиц: `(family, backend, kind, payload_bytes, rtt_ms, mode, cpu)`.
+Для памяти `mode` пустой, `rtt_ms=0`; для reconnect `backend=quic`,
+`kind=unary`, `payload_bytes=8`. `ns_per_op`, `bytes_per_op`, `allocs_per_op`
+соответствуют `ns/op`, `B/op`, `allocs/op`; последние две характеризуют общий
+benchmark-процесс, не отдельный клиент. Для reconnect исходные `first_reply_ns`
+переводятся в `first_reply_ms`, а напечатанные `first_reply_ms` и `RTT/reply`
+сверяются с учётом округления Go. Также проверяются `did_resume`, `used_0rtt`,
+`reported_rtt_ms`, `reported_payload_bytes`, `tls_version`, `tls_curve`,
+`tls_cipher_suite`. Сырой вывод, его SHA-256, CPU, число reconnect-операций,
+полнота повторов и порядок проверяются при каждом чтении.
+
+`median` и границы — по средним отдельных процессов, без веса по числу
+операций. Значение `metric` задаёт единицу: `ns_per_op`, `bytes_per_op`,
+`allocs_per_op`, `first_reply_ms`. При одном повторе `lo`/`hi` пусты; при RTT 0
+`gain_rtts` пуст. Перестроение: `PYTHONPATH=analysis/plots .venv/bin/python
+-m qrpcplots micro DIR [-o OUT]`. Эти таблицы не объединяются с `runs.csv`,
+`calls.parquet`, bulk или пилотом.
+
 ## calls.csv
 
 Одна строка на вызов, сообщение bidi-стрима или установку соединения (GEN-4). Пишет `bench load`, строки идут в порядке расписания.
