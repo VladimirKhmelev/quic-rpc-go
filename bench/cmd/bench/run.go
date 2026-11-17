@@ -93,6 +93,9 @@ func (r *runner) parse() (int, error) {
 	if r.load, err = loadgen.Lookup(loads, r.c.load); err != nil {
 		return 1, err
 	}
+	if r.load.Bulk != nil && r.network.Outage != (netns.Outage{}) {
+		return 2, errors.New("bulk: timed outages need a fixed-duration profile")
+	}
 	if err := r.load.Validate(r.options.MessageLimits); err != nil {
 		return 2, fmt.Errorf("%w: %w", errUsage, err)
 	}
@@ -352,6 +355,9 @@ func (r *runner) runLoad(ctx context.Context, s *netns.Stand, server int, addr, 
 		}
 		args = append(args, "-loads", loads)
 	}
+	if r.load.Bulk != nil {
+		args = append(args, "-phase-ack")
+	}
 	client, err := r.command(netns.Client, r.clientCPUs, "client.log", args...)
 	if err != nil {
 		return err
@@ -359,6 +365,14 @@ func (r *runner) runLoad(ctx context.Context, s *netns.Stand, server int, addr, 
 	out, err := client.StdoutPipe()
 	if err != nil {
 		return err
+	}
+	var ack io.WriteCloser
+	if r.load.Bulk != nil {
+		ack, err = client.StdinPipe()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = ack.Close() }()
 	}
 	if err := client.Start(); err != nil {
 		return err
@@ -404,8 +418,14 @@ func (r *runner) runLoad(ctx context.Context, s *netns.Stand, server int, addr, 
 			last, followErr = takeSample(server, client.Process.Pid)
 			stopOutages()
 		}
+		if followErr == nil && ack != nil && (ev.Phase == loadgen.PhaseMeasure || ev.Phase == loadgen.PhaseEnd) {
+			_, followErr = fmt.Fprintln(ack, "ok")
+		}
 	}
 	if followErr != nil {
+		if ack != nil {
+			_ = ack.Close()
+		}
 		_ = client.Process.Signal(syscall.SIGTERM)
 	}
 	// The client may still be writing: drain it before Wait.
@@ -455,8 +475,23 @@ func (r *runner) summarize() error {
 		return err
 	}
 	res := &r.meta.Results
+	if b := r.load.Bulk; b != nil {
+		for _, rec := range records {
+			if rec.Warmup {
+				continue
+			}
+			r.meta.ConnectTimeout = r.c.timeout
+			r.meta.ConfiguredWarmup, r.meta.ConfiguredMeasure = r.c.warmup, r.c.measure
+			r.meta.Warmup, r.meta.Measure, r.meta.Timeout = rec.Scheduled, rec.Latency, b.Deadline()
+			res.Bulk = &bulkResult{TotalBytes: b.TotalBytes, ChunkBytes: b.ChunkBytes, ReceivedBytes: rec.RespBytes, Chunks: rec.Chunks, Duration: rec.Latency, Code: rec.Code, Completed: rec.Code == 0 && rec.RespBytes == b.TotalBytes}
+		}
+		if res.Bulk == nil {
+			return errors.New("bulk: missing measured transfer record")
+		}
+	}
+
 	res.Kinds = loadgen.Summarize(records)
-	res.SentPerSecond, res.ReceivedPerSecond = loadgen.Goodput(records, r.c.measure)
-	res.InFlightMean, res.InFlightMax = loadgen.InFlight(records, r.c.warmup, r.c.measure)
+	res.SentPerSecond, res.ReceivedPerSecond = loadgen.Goodput(records, r.meta.Measure)
+	res.InFlightMean, res.InFlightMax = loadgen.InFlight(records, r.meta.Warmup, r.meta.Measure)
 	return nil
 }

@@ -32,6 +32,8 @@ const (
 	BenchCallProcedure = "/bench.v1.Bench/Call"
 	// BenchEchoProcedure is the procedure name of the Bench's Echo RPC.
 	BenchEchoProcedure = "/bench.v1.Bench/Echo"
+	// BenchBulkProcedure is the procedure name of the Bench's Bulk RPC.
+	BenchBulkProcedure = "/bench.v1.Bench/Bulk"
 )
 
 var (
@@ -49,6 +51,13 @@ var (
 			Procedure:  BenchEchoProcedure,
 		}
 	})
+	benchBulkSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeServer,
+			Schema:     v1.File_bench_v1_bench_proto.Services().ByName("Bench").Methods().ByName("Bulk"),
+			Procedure:  BenchBulkProcedure,
+		}
+	})
 )
 
 // BenchClient is a client for the bench.v1.Bench service.
@@ -57,6 +66,8 @@ type BenchClient interface {
 	Call(context.Context, *v1.CallRequest) (*v1.CallResponse, error)
 	// Echo answers every message with a copy of it until the client's FIN.
 	Echo(context.Context) (BenchEchoClientStream, error)
+	// Bulk sends one object in bounded chunks, followed by the final status.
+	Bulk(context.Context, *v1.BulkRequest) (BenchBulkClientStream, error)
 }
 
 // NewBenchClient constructs a client for the bench.v1.Bench service. Multiple service clients may
@@ -101,12 +112,34 @@ func (s BenchEchoClientStream) Close() error {
 	return s.stream.Close()
 }
 
+// BenchBulkClientStream is the client stream for the Bench's Bulk RPC.
+type BenchBulkClientStream struct {
+	stream connect.ClientStream
+}
+
+// Receive returns the next response message from the server.
+func (s BenchBulkClientStream) Receive() (*v1.BulkChunk, error) {
+	var res v1.BulkChunk
+	if err := s.stream.Receive(&res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// Close releases the stream's resources. It is idempotent and is typically deferred to clean up a
+// stream abandoned before io.EOF.
+func (s BenchBulkClientStream) Close() error {
+	return s.stream.Close()
+}
+
 // BenchHandler is an implementation of the bench.v1.Bench service.
 type BenchHandler interface {
 	// Call answers with a payload of the asked size.
 	Call(context.Context, *v1.CallRequest) (*v1.CallResponse, error)
 	// Echo answers every message with a copy of it until the client's FIN.
 	Echo(context.Context, BenchEchoServerStream) error
+	// Bulk sends one object in bounded chunks, followed by the final status.
+	Bulk(context.Context, *v1.BulkRequest, BenchBulkServerStream) error
 }
 
 // RegisterBenchHandler registers svc as the bench.v1.Bench implementation on server.
@@ -115,6 +148,7 @@ func RegisterBenchHandler(server *connect.Server, svc BenchHandler) {
 	server.Register(
 		connect.Method{Spec: benchCallSpec(), Handler: adapter.call},
 		connect.Method{Spec: benchEchoSpec(), Handler: adapter.echo},
+		connect.Method{Spec: benchBulkSpec(), Handler: adapter.bulk},
 	)
 }
 
@@ -142,6 +176,21 @@ func (s BenchEchoServerStream) Send(res *v1.EchoMessage) error {
 	return s.stream.Send(res)
 }
 
+// BenchBulkServerStream is the server stream for the Bench's Bulk RPC.
+type BenchBulkServerStream struct {
+	stream connect.ServerStream
+}
+
+// SendHeaders flushes the response headers without a message. The first Send does this implicitly.
+func (s BenchBulkServerStream) SendHeaders() error {
+	return s.stream.SendHeaders()
+}
+
+// Send sends a response message to the client.
+func (s BenchBulkServerStream) Send(res *v1.BulkChunk) error {
+	return s.stream.Send(res)
+}
+
 // UnimplementedBenchHandler returns CodeUnimplemented from all methods.
 type UnimplementedBenchHandler struct{}
 
@@ -151,6 +200,10 @@ func (UnimplementedBenchHandler) Call(context.Context, *v1.CallRequest) (*v1.Cal
 
 func (UnimplementedBenchHandler) Echo(context.Context, BenchEchoServerStream) error {
 	return connect.NewError(connect.CodeUnimplemented, "bench.v1.Bench.Echo is not implemented")
+}
+
+func (UnimplementedBenchHandler) Bulk(context.Context, *v1.BulkRequest, BenchBulkServerStream) error {
+	return connect.NewError(connect.CodeUnimplemented, "bench.v1.Bench.Bulk is not implemented")
 }
 
 type benchClient struct {
@@ -173,6 +226,14 @@ func (c *benchClient) Echo(ctx context.Context) (BenchEchoClientStream, error) {
 	return BenchEchoClientStream{stream: stream}, nil
 }
 
+func (c *benchClient) Bulk(ctx context.Context, req *v1.BulkRequest) (BenchBulkClientStream, error) {
+	stream, err := c.client.CallServerStream(ctx, benchBulkSpec(), req)
+	if err != nil {
+		return BenchBulkClientStream{}, err
+	}
+	return BenchBulkClientStream{stream: stream}, nil
+}
+
 type benchHandler struct{ svc BenchHandler }
 
 func (h benchHandler) call(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
@@ -189,4 +250,12 @@ func (h benchHandler) call(ctx context.Context, _ connect.Spec, stream connect.S
 
 func (h benchHandler) echo(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
 	return h.svc.Echo(ctx, BenchEchoServerStream{stream: stream})
+}
+
+func (h benchHandler) bulk(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.BulkRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	return h.svc.Bulk(ctx, &req, BenchBulkServerStream{stream: stream})
 }

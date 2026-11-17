@@ -30,8 +30,9 @@ const (
 )
 
 type env struct {
-	server common.Server
-	client common.Client
+	transport common.Transport
+	server    common.Server
+	client    common.Client
 	// curve is the key exchange of the last handshake of the client;
 	// handshakes counts them.
 	curve       atomic.Uint32
@@ -54,7 +55,7 @@ func forEachLimits(t *testing.T, serverLimits, clientLimits common.MessageLimits
 			if err != nil {
 				t.Fatal(err)
 			}
-			e := &env{}
+			e := &env{transport: tr}
 			switch tr {
 			case common.QUIC:
 				e.wantALPN = "qrpc/2"

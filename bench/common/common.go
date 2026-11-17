@@ -93,6 +93,9 @@ func (o ClientOptions) Resolve(t Transport) (ClientOptions, error) {
 // Client makes calls to one server over one connection or a pool. It is safe for
 // concurrent use.
 type Client interface {
+	// Bulk opens a server stream carrying total payload bytes in chunks.
+	// The caller must cancel ctx if it stops receiving before the final status.
+	Bulk(ctx context.Context, total, chunk int) (BulkStream, error)
 	// Connect waits for handshakes and, for HTTP, peer settings. For a pool
 	// it waits for every member. Calls connect by themselves too;
 	// Connect is there to time setup (EXP-6).

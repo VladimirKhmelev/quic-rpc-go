@@ -149,3 +149,23 @@ func listenGRPC(addr string, tlsConf *tls.Config, limits MessageLimits) (*grpcSe
 func (s *grpcServer) Addr() net.Addr { return s.addr }
 
 func (s *grpcServer) Stop() { s.srv.Stop() }
+
+func (c *grpcClient) Bulk(ctx context.Context, total, chunk int) (BulkStream, error) {
+	req, err := bulkRequest(total, chunk, c.limits.MaxPayload())
+	if err != nil {
+		return nil, err
+	}
+	stream, err := c.bench.Bulk(ctx, req)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return bulkReceiver{ctx: ctx, receive: stream.Recv, result: grpcError}, nil
+}
+
+func (s grpcService) Bulk(req *benchv1.BulkRequest, stream grpc.ServerStreamingServer[benchv1.BulkChunk]) error {
+	err := s.sendBulk(stream.Context(), req, stream.Send)
+	if e, ok := errors.AsType[*StatusError](err); ok {
+		return status.Error(codes.Code(e.Code), e.Message)
+	}
+	return err
+}

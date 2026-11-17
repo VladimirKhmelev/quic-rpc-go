@@ -57,6 +57,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -143,6 +144,7 @@ func run(args []string) (int, error) {
 		return serve(t, *addr, *certsDir, limits)
 	case "load":
 		var c loadConfig
+		fs.BoolVar(&c.phaseAck, "phase-ack", false, "wait for CPU sampling acknowledgements on stdin (orchestrator)")
 		messageFlags(fs, &c.limits)
 		fs.StringVar(&c.transport, "transport", "", "call with `TRANSPORT`: quic, grpc-h2, grpc-h2-pool, grpc-h3 or connect-h2")
 		fs.StringVar(&c.addr, "addr", "", "call the server at `HOST:PORT`")
@@ -231,6 +233,7 @@ type runConfig struct {
 
 // loadConfig is the command line of load.
 type loadConfig struct {
+	phaseAck                                    bool
 	limits                                      common.MessageLimits
 	transport, addr, certs, profile, loads, out string
 	cfg                                         loadgen.Config
@@ -286,10 +289,22 @@ func load(c loadConfig) (int, error) {
 	tlsConf.VerifyConnection = ev.verify
 	c.cfg.MessageLimits = options.MessageLimits
 	c.cfg.Dial = func() (common.Client, error) { return common.Dial(t, c.addr, tlsConf, options) }
-	c.cfg.OnPhase = ev.phase
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	var phaseErr error
+	ack := bufio.NewReader(os.Stdin)
+	c.cfg.OnPhase = func(phase loadgen.Phase) {
+		ev.phase(phase)
+		if c.phaseAck && (phase == loadgen.PhaseMeasure || phase == loadgen.PhaseEnd) {
+			line, err := ack.ReadString('\n')
+			if err != nil || line != "ok\n" {
+				phaseErr = errors.New("load: missing CPU sampling acknowledgement")
+				stop()
+			}
+		}
+	}
 	records, runErr := loadgen.Run(ctx, c.cfg)
+	runErr = errors.Join(runErr, phaseErr)
 	if records == nil {
 		return 1, runErr
 	}

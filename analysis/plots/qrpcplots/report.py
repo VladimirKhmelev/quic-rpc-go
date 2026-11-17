@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import figures, stats
+from . import bulk, figures, stats
 
 # The figures of the loss axis: (load, number of the figure).
 LOSS_FIGURES = [("small", 1), ("small-heavy", 2)]
@@ -47,6 +47,20 @@ def report(runs: pd.DataFrame, calls: pd.DataFrame, out: str | Path) -> list[Pat
     files written."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    bulk_runs = runs[runs.get("bulk_total_bytes", pd.Series(0, index=runs.index)) > 0]
+    if not bulk_runs.empty:
+        written = bulk.write(bulk_runs, out)
+        other = runs[~runs["run_id"].isin(bulk_runs["run_id"])]
+        path = out / "report.md"
+        if other.empty:
+            path.write_text("# Сводка серии\n\n" + bulk.text(bulk_runs), encoding="utf-8")
+            return written + [path]
+        written += report(other, calls[calls["run_id"].isin(other["run_id"])], out)
+        body = path.read_text(encoding="utf-8")
+        body = body.replace("# Сводка серии\n", f"# Сводка серии\n\nВсего прогонов: {len(runs)}. "
+                            f"Ниже обычные нагрузки ({len(other)} прогонов); bulk приведён отдельным разделом.\n", 1)
+        path.write_text(body + "\n" + bulk.text(bulk_runs), encoding="utf-8")
+        return written
     summary = stats.run_summary(runs, calls)
     tables = {
         "summary": summary,

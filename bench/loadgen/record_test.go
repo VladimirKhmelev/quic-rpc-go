@@ -15,9 +15,9 @@ func TestWriteCSV(t *testing.T) {
 		{Seq: 0, Kind: KindSmall, Scheduled: 5 * time.Millisecond, Latency: 1500 * time.Microsecond, ReqBytes: 100, RespBytes: 100, Warmup: true},
 		{Seq: 1, Kind: KindConnect, Scheduled: 6 * time.Second, Latency: 2 * time.Millisecond, Code: 14, Conn: 2},
 	})
-	want := "seq,kind,scheduled_ns,latency_ns,code,req_bytes,resp_bytes,conn,phase\n" +
-		"0,small,5000000,1500000,0,100,100,0,warmup\n" +
-		"1,connect,6000000000,2000000,14,0,0,2,measure\n"
+	want := "seq,kind,scheduled_ns,latency_ns,code,req_bytes,resp_bytes,conn,phase,chunks\n" +
+		"0,small,5000000,1500000,0,100,100,0,warmup,0\n" +
+		"1,connect,6000000000,2000000,14,0,0,2,measure,0\n"
 	if err != nil || b.String() != want {
 		t.Fatalf("got %q, %v\nwant %q", b.String(), err, want)
 	}

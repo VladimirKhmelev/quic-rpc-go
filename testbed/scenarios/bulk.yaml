@@ -1,0 +1,15 @@
+# Q-03 acceptance: one measured 100 MiB stream per transport.
+# Repeat counts and network axes of the main experiment are set in Q-05.
+name: bulk
+seed: 1
+repeats: 1
+warmup: 0s
+duration: 30s # Requested duration is recorded; bulk measures until its final status.
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+  - {name: grpc-h2-pool-4, transport: grpc-h2-pool, tcp: aligned, pool_size: 4}
+  - {name: grpc-h3, transport: grpc-h3, tcp: aligned}
+  - {name: connect-h2, transport: connect-h2, tcp: aligned}
+networks: [base]
+loads: [bulk]

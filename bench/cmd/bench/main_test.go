@@ -141,7 +141,7 @@ func TestLoad(t *testing.T) {
 				if err != nil || len(rows) < 10 {
 					t.Fatalf("%s: %d rows, %v", profile, len(rows), err)
 				}
-				if got := strings.Join(rows[0], ","); got != "seq,kind,scheduled_ns,latency_ns,code,req_bytes,resp_bytes,conn,phase" {
+				if got := strings.Join(rows[0], ","); got != "seq,kind,scheduled_ns,latency_ns,code,req_bytes,resp_bytes,conn,phase,chunks" {
 					t.Fatalf("header %q", got)
 				}
 				kinds := map[string]int{}

@@ -29,7 +29,8 @@ type Config struct {
 	// Calls due before Warmup are recorded as warm-up; the run lasts
 	// Warmup + Measure.
 	Warmup, Measure time.Duration
-	// Timeout is the deadline of every call; zero means DefaultTimeout.
+	// Timeout is the deadline of every ordinary call; zero means DefaultTimeout.
+	// For bulk it bounds connection setup; Bulk.Timeout bounds each transfer.
 	Timeout time.Duration
 	// Dial makes a client. Run calls it once, and once per connection of a
 	// reconnect profile.
@@ -66,6 +67,7 @@ type Record struct {
 	Code      uint32
 	ReqBytes  int
 	RespBytes int
+	Chunks    int
 	Conn      int
 	Warmup    bool
 }
@@ -88,6 +90,12 @@ func Run(ctx context.Context, cfg Config) ([]Record, error) {
 	}
 	if cfg.Dial == nil || cfg.Measure <= 0 || cfg.Warmup < 0 {
 		return nil, errors.New("loadgen: want Dial, a positive Measure and no negative Warmup")
+	}
+	if cfg.Profile.Bulk != nil {
+		if cfg.Closed != 0 {
+			return nil, errors.New("loadgen: bulk does not support closed-loop workers")
+		}
+		return runBulk(ctx, cfg)
 	}
 	r := &runner{cfg: cfg, timeout: cfg.Timeout}
 	if r.timeout == 0 {

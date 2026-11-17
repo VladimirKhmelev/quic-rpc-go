@@ -16,7 +16,7 @@ import (
 
 // csvHeader names the columns of WriteCSV (GEN-4); data/schema.md
 // describes them.
-var csvHeader = []string{"seq", "kind", "scheduled_ns", "latency_ns", "code", "req_bytes", "resp_bytes", "conn", "phase"}
+var csvHeader = []string{"seq", "kind", "scheduled_ns", "latency_ns", "code", "req_bytes", "resp_bytes", "conn", "phase", "chunks"}
 
 // WriteCSV writes one row per record, the raw data of a run.
 func WriteCSV(w io.Writer, records []Record) error {
@@ -33,7 +33,7 @@ func WriteCSV(w io.Writer, records []Record) error {
 			strconv.Itoa(r.Seq), string(r.Kind),
 			strconv.FormatInt(int64(r.Scheduled), 10), strconv.FormatInt(int64(r.Latency), 10),
 			strconv.FormatUint(uint64(r.Code), 10), strconv.Itoa(r.ReqBytes), strconv.Itoa(r.RespBytes),
-			strconv.Itoa(r.Conn), phase,
+			strconv.Itoa(r.Conn), phase, strconv.Itoa(r.Chunks),
 		}); err != nil {
 			return err
 		}
@@ -48,7 +48,7 @@ func ReadCSV(r io.Reader) ([]Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loadgen: %w", err)
 	}
-	if len(rows) == 0 || !slices.Equal(rows[0], csvHeader) {
+	if len(rows) == 0 || !slices.Equal(rows[0], csvHeader) && !slices.Equal(rows[0], csvHeader[:9]) {
 		return nil, errors.New("loadgen: not a CSV of calls")
 	}
 	records := make([]Record, 0, len(rows)-1)
@@ -63,8 +63,12 @@ func ReadCSV(r io.Reader) ([]Record, error) {
 }
 
 func parseRow(row []string) (Record, error) {
-	var ints [6]int64
-	for i, col := range []int{0, 2, 3, 5, 6, 7} {
+	var ints [7]int64
+	columns := []int{0, 2, 3, 5, 6, 7}
+	if len(row) == 10 {
+		columns = append(columns, 9)
+	}
+	for i, col := range columns {
 		n, err := strconv.ParseInt(row[col], 10, 64)
 		if err != nil || n < 0 {
 			return Record{}, fmt.Errorf("%s %q", csvHeader[col], row[col])
@@ -76,7 +80,10 @@ func parseRow(row []string) (Record, error) {
 		return Record{}, fmt.Errorf("code %q", row[4])
 	}
 	kind := Kind(row[1])
-	if !slices.Contains([]Kind{KindSmall, KindHeavy, KindEcho, KindConnect}, kind) {
+	if kind == KindBulk && len(row) != len(csvHeader) {
+		return Record{}, errors.New("bulk record requires chunks")
+	}
+	if !slices.Contains([]Kind{KindSmall, KindHeavy, KindEcho, KindConnect, KindBulk}, kind) {
 		return Record{}, fmt.Errorf("kind %q", row[1])
 	}
 	if row[8] != "warmup" && row[8] != "measure" {
@@ -85,7 +92,7 @@ func parseRow(row []string) (Record, error) {
 	return Record{
 		Seq: int(ints[0]), Kind: kind, Scheduled: time.Duration(ints[1]), Latency: time.Duration(ints[2]),
 		Code: uint32(code), ReqBytes: int(ints[3]), RespBytes: int(ints[4]), Conn: int(ints[5]),
-		Warmup: row[8] == "warmup",
+		Warmup: row[8] == "warmup", Chunks: int(ints[6]),
 	}, nil
 }
 
@@ -164,7 +171,7 @@ func Summarize(records []Record) []KindSummary {
 		byKind[r.Kind] = append(byKind[r.Kind], r.Latency)
 	}
 	var out []KindSummary
-	for _, k := range []Kind{KindSmall, KindHeavy, KindEcho, KindConnect} {
+	for _, k := range []Kind{KindSmall, KindHeavy, KindEcho, KindConnect, KindBulk} {
 		s := sums[k]
 		if s == nil {
 			continue

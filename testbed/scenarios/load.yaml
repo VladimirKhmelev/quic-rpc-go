@@ -36,3 +36,7 @@ loads:
   - name: heavy-8m
     description: Ответ 8 МиБ; требует явного увеличения лимита сообщений
     heavy: {size: 8388608, every: 1s}
+
+  - name: bulk
+    description: Один server-stream 100 МиБ блоками по 64 КиБ
+    bulk: {total_bytes: 104857600, chunk_bytes: 65536, timeout: 60s}

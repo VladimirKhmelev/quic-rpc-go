@@ -257,6 +257,16 @@ func benchSeries(c seriesConfig) (int, error) {
 		p, _ := loadgen.Lookup(loads, l) // parseMatrix found it
 		s.Loads = append(s.Loads, p)
 	}
+	for _, p := range s.Loads {
+		if p.Bulk == nil {
+			continue
+		}
+		for _, n := range s.Networks {
+			if n.Outage != (netns.Outage{}) {
+				return 1, errors.New("bulk: timed outages need a fixed-duration profile")
+			}
+		}
+	}
 	if c.dryRun {
 		printPlan(os.Stdout, s)
 		return 0, nil
@@ -465,7 +475,19 @@ func distinct(runs []plannedRun, f func(plannedRun) string) []string {
 
 // estimate is roughly how long the runs of s take.
 func estimate(s seriesFile) time.Duration {
-	return time.Duration(len(s.Runs)) * (s.Matrix.Warmup + s.Matrix.Duration + runOverhead)
+	var total time.Duration
+	for _, r := range s.Runs {
+		p, _ := loadgen.Lookup(s.Loads, r.Load)
+		measurement, warmup := s.Matrix.Duration, s.Matrix.Warmup
+		if p.Bulk != nil {
+			measurement = p.Bulk.Deadline()
+			if warmup > 0 {
+				warmup += measurement
+			}
+		}
+		total += warmup + measurement + runOverhead
+	}
+	return total
 }
 
 func printPlan(w io.Writer, s seriesFile) {

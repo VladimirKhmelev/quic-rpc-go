@@ -25,6 +25,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	Bench_Call_FullMethodName = "/bench.v1.Bench/Call"
 	Bench_Echo_FullMethodName = "/bench.v1.Bench/Echo"
+	Bench_Bulk_FullMethodName = "/bench.v1.Bench/Bulk"
 )
 
 // BenchClient is the client API for Bench service.
@@ -35,6 +36,8 @@ type BenchClient interface {
 	Call(ctx context.Context, in *CallRequest, opts ...grpc.CallOption) (*CallResponse, error)
 	// Echo answers every message with a copy of it until the client's FIN.
 	Echo(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[EchoMessage, EchoMessage], error)
+	// Bulk sends one object in bounded chunks, followed by the final status.
+	Bulk(ctx context.Context, in *BulkRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BulkChunk], error)
 }
 
 type benchClient struct {
@@ -68,6 +71,25 @@ func (c *benchClient) Echo(ctx context.Context, opts ...grpc.CallOption) (grpc.B
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Bench_EchoClient = grpc.BidiStreamingClient[EchoMessage, EchoMessage]
 
+func (c *benchClient) Bulk(ctx context.Context, in *BulkRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BulkChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Bench_ServiceDesc.Streams[1], Bench_Bulk_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[BulkRequest, BulkChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Bench_BulkClient = grpc.ServerStreamingClient[BulkChunk]
+
 // BenchServer is the server API for Bench service.
 // All implementations must embed UnimplementedBenchServer
 // for forward compatibility.
@@ -76,6 +98,8 @@ type BenchServer interface {
 	Call(context.Context, *CallRequest) (*CallResponse, error)
 	// Echo answers every message with a copy of it until the client's FIN.
 	Echo(grpc.BidiStreamingServer[EchoMessage, EchoMessage]) error
+	// Bulk sends one object in bounded chunks, followed by the final status.
+	Bulk(*BulkRequest, grpc.ServerStreamingServer[BulkChunk]) error
 	mustEmbedUnimplementedBenchServer()
 }
 
@@ -91,6 +115,9 @@ func (UnimplementedBenchServer) Call(context.Context, *CallRequest) (*CallRespon
 }
 func (UnimplementedBenchServer) Echo(grpc.BidiStreamingServer[EchoMessage, EchoMessage]) error {
 	return status.Error(codes.Unimplemented, "method Echo not implemented")
+}
+func (UnimplementedBenchServer) Bulk(*BulkRequest, grpc.ServerStreamingServer[BulkChunk]) error {
+	return status.Error(codes.Unimplemented, "method Bulk not implemented")
 }
 func (UnimplementedBenchServer) mustEmbedUnimplementedBenchServer() {}
 func (UnimplementedBenchServer) testEmbeddedByValue()               {}
@@ -138,6 +165,17 @@ func _Bench_Echo_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Bench_EchoServer = grpc.BidiStreamingServer[EchoMessage, EchoMessage]
 
+func _Bench_Bulk_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(BulkRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(BenchServer).Bulk(m, &grpc.GenericServerStream[BulkRequest, BulkChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Bench_BulkServer = grpc.ServerStreamingServer[BulkChunk]
+
 // Bench_ServiceDesc is the grpc.ServiceDesc for Bench service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -156,6 +194,11 @@ var Bench_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _Bench_Echo_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "Bulk",
+			Handler:       _Bench_Bulk_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "bench/v1/bench.proto",

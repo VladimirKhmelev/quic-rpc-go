@@ -16,6 +16,7 @@ const (
 	KindHeavy   Kind = "heavy"
 	KindEcho    Kind = "echo"
 	KindConnect Kind = "connect"
+	KindBulk    Kind = "bulk"
 )
 
 // Event is one scheduled call, message or connection.
