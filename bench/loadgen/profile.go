@@ -22,6 +22,7 @@ type Profile struct {
 	Small       *Small     `json:"small,omitempty"     yaml:"small"`
 	Heavy       *Heavy     `json:"heavy,omitempty"     yaml:"heavy"`
 	Echo        *Echo      `json:"echo,omitempty"      yaml:"echo"`
+	Bulk        *Bulk      `json:"bulk,omitempty" yaml:"bulk"`
 	Reconnect   *Reconnect `json:"reconnect,omitempty" yaml:"reconnect"`
 }
 
@@ -56,6 +57,25 @@ type Reconnect struct {
 	Calls int           `json:"calls"    yaml:"calls"`
 }
 
+// DefaultBulkTimeout bounds a finite transfer independently of ordinary calls.
+const DefaultBulkTimeout = 60 * time.Second
+
+// Bulk transfers one object per measurement, after sequential warm-up transfers.
+// Its total can exceed a message limit; only a chunk must fit that limit.
+type Bulk struct {
+	TotalBytes int           `json:"total_bytes" yaml:"total_bytes"`
+	ChunkBytes int           `json:"chunk_bytes" yaml:"chunk_bytes"`
+	Timeout    time.Duration `json:"timeout_ns" yaml:"timeout"`
+}
+
+// Deadline returns the transfer budget, defaulting to 60 seconds.
+func (b Bulk) Deadline() time.Duration {
+	if b.Timeout == 0 {
+		return DefaultBulkTimeout
+	}
+	return b.Timeout
+}
+
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // Validate reports values the generator cannot run.
@@ -80,7 +100,7 @@ func (p Profile) Validate(limits ...common.MessageLimits) error {
 	}
 	size := func(n int) bool { return n >= 0 && n <= maxPayload }
 	check(nameRE.MatchString(p.Name), "name %q: want lowercase letters, digits and dashes", p.Name)
-	check(p.Small != nil && p.Small.Rate > 0 || p.Heavy != nil || p.Echo != nil || p.Reconnect != nil, "no calls")
+	check(p.Small != nil && p.Small.Rate > 0 || p.Heavy != nil || p.Echo != nil || p.Reconnect != nil || p.Bulk != nil, "no calls")
 	if s := p.Small; s != nil {
 		check(s.Rate >= 0, "small rate %v is negative", s.Rate)
 		check(size(s.MinSize) && size(s.MaxSize) && s.MinSize <= s.MaxSize,
@@ -100,6 +120,12 @@ func (p Profile) Validate(limits ...common.MessageLimits) error {
 		// a long-lived one.
 		check(p.Small != nil && p.Small.Rate == 0 && p.Heavy == nil && p.Echo == nil,
 			"reconnect takes the sizes of small with rate 0 and no other calls")
+	}
+	if b := p.Bulk; b != nil {
+		check(p.Small == nil && p.Heavy == nil && p.Echo == nil && p.Reconnect == nil, "bulk must be a standalone profile")
+		check(b.TotalBytes > 0 && b.TotalBytes <= math.MaxInt32, "bulk total_bytes must be 1..%d", math.MaxInt32)
+		check(b.ChunkBytes > 0 && b.ChunkBytes <= maxPayload, "bulk chunk_bytes must be 1..%d", maxPayload)
+		check(b.Timeout >= 0, "bulk timeout must not be negative")
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("load profile %q: %w", p.Name, err)
@@ -121,7 +147,11 @@ func ParseProfiles(data []byte) ([]Profile, error) {
 		return nil, fmt.Errorf("load profiles: %w", err)
 	}
 	seen := map[string]bool{}
-	for _, p := range file.Loads {
+	for i := range file.Loads {
+		p := &file.Loads[i]
+		if p.Bulk != nil && p.Bulk.Timeout == 0 {
+			p.Bulk.Timeout = DefaultBulkTimeout
+		}
 		if err := p.Validate(common.MessageLimits{MaxRecvMsgBytes: math.MaxInt32}); err != nil {
 			return nil, err
 		}

@@ -29,6 +29,7 @@ func bundled(t *testing.T, name string) Profile {
 func TestBundledProfiles(t *testing.T) {
 	small := &Small{Rate: 200, MinSize: 100, MaxSize: 1000}
 	want := map[string]Profile{
+		"bulk":        {Bulk: &Bulk{TotalBytes: 100 << 20, ChunkBytes: 64 << 10, Timeout: time.Minute}},
 		"small":       {Small: small},
 		"small-heavy": {Small: small, Heavy: &Heavy{Size: 1 << 20, Every: time.Second}},
 		"heavy-8m":    {Heavy: &Heavy{Size: 8 << 20, Every: time.Second}},
@@ -53,7 +54,7 @@ func TestBundledProfiles(t *testing.T) {
 			t.Errorf("profile %s:\n got %+v\nwant %+v", p.Name, p, w)
 		}
 	}
-	if _, err := Lookup(profiles, "bulk"); err == nil || !strings.Contains(err.Error(), "small-heavy") {
+	if _, err := Lookup(profiles, "unknown"); err == nil || !strings.Contains(err.Error(), "small-heavy") {
 		t.Errorf("Lookup of an unknown profile: %v", err)
 	}
 }

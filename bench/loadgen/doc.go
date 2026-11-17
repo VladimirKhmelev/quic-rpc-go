@@ -5,4 +5,6 @@
 // answer delays the record of every call that queued behind it instead of
 // postponing the calls themselves. Failed and timed-out calls are records
 // too. Closed-loop, one call after another, is there only for comparison.
+// The separate bulk profile measures one finite server-stream transfer,
+// including its final status, instead of a fixed-duration arrival process.
 package loadgen
