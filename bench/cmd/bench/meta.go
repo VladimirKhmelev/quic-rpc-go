@@ -23,15 +23,18 @@ import (
 // data/schema.md describes it.
 type meta struct {
 	common.ClientOptions
-	RunID     string           `json:"run_id"`
-	Transport common.Transport `json:"transport"`
-	Network   netns.Profile    `json:"network"`
-	Load      loadgen.Profile  `json:"load"`
-	TCP       netns.TCP        `json:"tcp"`
-	Seed      uint64           `json:"seed"`
-	Warmup    time.Duration    `json:"warmup_ns"`
-	Measure   time.Duration    `json:"measure_ns"`
-	Timeout   time.Duration    `json:"timeout_ns"`
+	ConnectTimeout    time.Duration    `json:"connect_timeout_ns,omitempty"`
+	ConfiguredWarmup  time.Duration    `json:"configured_warmup_ns,omitempty"`
+	ConfiguredMeasure time.Duration    `json:"configured_measure_ns,omitempty"`
+	RunID             string           `json:"run_id"`
+	Transport         common.Transport `json:"transport"`
+	Network           netns.Profile    `json:"network"`
+	Load              loadgen.Profile  `json:"load"`
+	TCP               netns.TCP        `json:"tcp"`
+	Seed              uint64           `json:"seed"`
+	Warmup            time.Duration    `json:"warmup_ns"`
+	Measure           time.Duration    `json:"measure_ns"`
+	Timeout           time.Duration    `json:"timeout_ns"`
 	// Outages are when the outages of the network profile were due to
 	// start, since the start of the schedule.
 	Outages []time.Duration `json:"outages_ns"`
@@ -92,8 +95,20 @@ type window struct {
 	Duration time.Duration `json:"duration_ns"`
 }
 
+// bulkResult is one measured transfer, including partial progress on failure.
+type bulkResult struct {
+	TotalBytes    int           `json:"total_bytes"`
+	ChunkBytes    int           `json:"chunk_bytes"`
+	ReceivedBytes int           `json:"received_bytes"`
+	Chunks        int           `json:"chunks"`
+	Duration      time.Duration `json:"duration_ns"`
+	Code          uint32        `json:"code"`
+	Completed     bool          `json:"completed"`
+}
+
 // results sum up the calls of the measurement.
 type results struct {
+	Bulk  *bulkResult           `json:"bulk,omitempty"`
 	Kinds []loadgen.KindSummary `json:"kinds"`
 	// Payload bytes per second of the answered calls, sent in requests
 	// and received in responses.
