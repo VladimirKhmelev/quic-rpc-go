@@ -27,6 +27,7 @@ CALL_DTYPES = {
     "resp_bytes": "int64",
     "conn": "int32",
     "phase": "category",
+    "chunks": "int64",
 }
 
 
@@ -89,10 +90,60 @@ def message_limits(record: dict) -> tuple[int, int]:
     return recv, send
 
 
+BULK_DEFAULTS = {
+    "bulk_total_bytes": 0, "bulk_chunk_bytes": 0, "bulk_timeout_ns": 0,
+    "bulk_received_bytes": 0, "bulk_chunks": 0, "bulk_duration_ns": 0,
+    "bulk_code": 0, "bulk_completed": False,
+}
+
+
+def bulk_fields(meta: dict) -> dict:
+    """Validates the finite-transfer configuration and its measured outcome."""
+    config = meta.get("load", {}).get("bulk")
+    result = meta["results"].get("bulk")
+    if config is None:
+        if result is not None:
+            raise ValueError("bulk result without a bulk profile")
+        return dict(BULK_DEFAULTS)
+    if result is None:
+        raise ValueError("bulk profile without a result")
+    total, chunk, timeout = (config[k] for k in ("total_bytes", "chunk_bytes", "timeout_ns"))
+    limits = message_limits(meta)
+    cap = min(limits[0], limits[1] or limits[0]) - 64
+    if any(type(n) is not int for n in (total, chunk, timeout)) or not (0 < total <= (1 << 31) - 1 and 0 < chunk <= cap and timeout > 0):
+        raise ValueError("invalid bulk configuration")
+    received, chunks, duration, code = (result[k] for k in ("received_bytes", "chunks", "duration_ns", "code"))
+    if any(type(n) is not int for n in (received, chunks, duration, code)) or min(received, chunks) < 0 or duration <= 0 or not 0 <= code <= 16:
+        raise ValueError("invalid bulk outcome")
+    completed = code == 0 and received == total and chunks == (total + chunk - 1) // chunk
+    if (result["total_bytes"], result["chunk_bytes"], duration) != (total, chunk, meta["measure_ns"]) or type(result["completed"]) is not bool or result["completed"] != completed or code == 0 and not completed:
+        raise ValueError("bulk result disagrees with profile or measurement")
+    return dict(zip(BULK_DEFAULTS, (total, chunk, timeout, received, chunks, duration, code, completed), strict=True))
+
+
+def validate_bulk_calls(row: dict, calls: pd.DataFrame) -> None:
+    """Cross-checks the single transfer record with its independent metadata."""
+    if not row["bulk_total_bytes"]:
+        if (calls["kind"] == "bulk").any():
+            raise ValueError("bulk calls without a bulk profile")
+        return
+    measured = calls[calls["phase"] == "measure"]
+    if len(measured) != 1 or not (calls["kind"] == "bulk").all():
+        raise ValueError("bulk needs exactly one measured transfer")
+    r = measured.iloc[0]
+    actual = (r["resp_bytes"], r["chunks"], r["latency_ns"], r["code"], r["scheduled_ns"])
+    expected = tuple(row[k] for k in ("bulk_received_bytes", "bulk_chunks", "bulk_duration_ns", "bulk_code", "warmup_ns"))
+    if actual != expected:
+        raise ValueError("bulk call differs from metadata")
+
+
 def normalize_setups(runs: pd.DataFrame) -> pd.DataFrame:
     """Preserves legacy tables and rejects pooling different setups under
     the same variant name, which is the unit used by the statistics."""
     runs = runs.copy()
+    for column, default in BULK_DEFAULTS.items():
+        if column not in runs:
+            runs[column] = default
     setups = [connection_setup(r, r["transport"]) for r in runs.to_dict("records")]
     runs["pool_size"] = [s[0] for s in setups]
     runs["pool_policy"] = [s[1] for s in setups]
@@ -102,6 +153,20 @@ def normalize_setups(runs: pd.DataFrame) -> pd.DataFrame:
     for variant, group in runs.groupby("variant", observed=True):
         if len(group[["transport", "tcp", "pool_size", "pool_policy", *MESSAGE_LIMIT_COLUMNS]].drop_duplicates()) != 1:
             raise ValueError(f"variant {variant!r}: different connection setups or message limits")
+    for r in runs.to_dict("records"):
+        if not r["bulk_total_bytes"]:
+            if any(r[k] != default for k, default in BULK_DEFAULTS.items()):
+                raise ValueError("bulk outcome without a configured transfer")
+            continue
+        config = {k: r["bulk_" + k] for k in ("total_bytes", "chunk_bytes", "timeout_ns")}
+        outcome = {"total_bytes": config["total_bytes"], "chunk_bytes": config["chunk_bytes"],
+                   "received_bytes": r["bulk_received_bytes"], "chunks": r["bulk_chunks"],
+                   "duration_ns": r["bulk_duration_ns"], "code": r["bulk_code"], "completed": r["bulk_completed"]}
+        bulk_fields({"load": {"bulk": config}, "results": {"bulk": outcome},
+                     "measure_ns": r["measure_ns"], **{k: r[k] for k in MESSAGE_LIMIT_COLUMNS}})
+    for key, group in runs.groupby(["variant", "load"], observed=True):
+        if len(group[["bulk_total_bytes", "bulk_chunk_bytes", "bulk_timeout_ns"]].drop_duplicates()) != 1:
+            raise ValueError(f"{key}: different bulk configurations")
     return runs
 
 
@@ -128,6 +193,7 @@ def run_row(planned: dict, meta: dict) -> dict:
     if alpn and transport in expected_alpn and alpn != expected_alpn[transport]:
         raise ValueError(f"{planned['id']}: negotiated ALPN {alpn!r} differs from transport {transport}")
     return {
+        **bulk_fields(meta),
         "run_id": planned["id"],
         "variant": planned["variant"],
         "transport": planned["transport"],
@@ -182,8 +248,15 @@ def read_series(path: str | Path) -> Series:
         except FileNotFoundError:
             missing.append(planned["id"])
             continue
-        rows.append(run_row(planned, meta))
+        row = run_row(planned, meta)
+        definitions = {p["name"]: p for p in plan.get("loads", [])}
+        if planned["load"] in definitions and definitions[planned["load"]].get("bulk") != meta.get("load", {}).get("bulk"):
+            raise ValueError(f"{planned['id']}: bulk profile differs from plan")
+        rows.append(row)
         c = pd.read_csv(run_dir / "calls.csv", dtype=CALL_DTYPES)
+        if "chunks" not in c:
+            c["chunks"] = 0
+        validate_bulk_calls(row, c)
         c.insert(0, "run_id", planned["id"])
         calls.append(c)
     if not rows:
@@ -192,6 +265,8 @@ def read_series(path: str | Path) -> Series:
 
 
 def _categorize(calls: pd.DataFrame) -> pd.DataFrame:
+    if "chunks" not in calls:
+        calls["chunks"] = 0
     for column in ("run_id", "kind", "phase"):
         calls[column] = calls[column].astype("category")
     return calls
@@ -202,7 +277,10 @@ def write_tables(series: Series, out: str | Path) -> None:
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     normalize_setups(series.runs).to_csv(out / RUNS_FILE, index=False)
-    series.calls.to_parquet(out / CALLS_FILE, compression="zstd", index=False)
+    calls = _categorize(series.calls.copy())
+    for row in series.runs.to_dict("records"):
+        validate_bulk_calls({**BULK_DEFAULTS, **row}, calls[calls["run_id"] == row["run_id"]])
+    calls.to_parquet(out / CALLS_FILE, compression="zstd", index=False)
 
 
 def read_tables(path: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -210,4 +288,7 @@ def read_tables(path: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     path = Path(path)
     runs = pd.read_csv(path / RUNS_FILE, keep_default_na=False, na_values=[])
     calls = _categorize(pd.read_parquet(path / CALLS_FILE))
-    return normalize_setups(runs), calls
+    runs = normalize_setups(runs)
+    for row in runs.to_dict("records"):
+        validate_bulk_calls(row, calls[calls["run_id"] == row["run_id"]])
+    return runs, calls
