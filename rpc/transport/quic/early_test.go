@@ -414,38 +414,100 @@ func TestEarlyDisabled(t *testing.T) {
 	}
 }
 
-// Compare resumed TLS in both cases; only early application data differs.
-// The controlled server-to-client delay adds one RTT without serially delaying
-// every datagram. The measured interval includes dialing and the first reply.
+// earlyBenchmarkFixture pins key exchange and makes the requested session
+// state explicit. Cold connections never read or write a client session cache.
+func earlyBenchmarkFixture(t testing.TB, rtt time.Duration, mode string) *earlyFixture {
+	t.Helper()
+	f := newEarlyFixture(t, rtt, true, func(c *tls.Config) {
+		c.CurvePreferences = []tls.CurveID{tls.X25519MLKEM768}
+	})
+	tc := f.d.TLSConfig.Clone()
+	tc.CurvePreferences = []tls.CurveID{tls.X25519MLKEM768}
+	f.d.TLSConfig = tc
+	if mode == "cold" {
+		tc.ClientSessionCache = nil
+	} else {
+		f.warm(t.Context(), t)
+	}
+	f.d = &earlyDialer{Dialer: &rpcquic.Dialer{Addr: f.d.Addr, TLSConfig: tc, Enable0RTT: mode == "early"}}
+	return f
+}
+
+// earlyBenchmarkCall measures Invoke through the first successful reply. Client
+// construction, state inspection, fixture bookkeeping and Close are outside
+// first_reply_ms, but remain part of the ordinary Go benchmark ns/op.
+func earlyBenchmarkCall(ctx context.Context, t testing.TB, f *earlyFixture, mode string) (time.Duration, quic.ConnectionState) {
+	t.Helper()
+	cc := rpc.NewClient(f.d)
+	defer func() { _ = cc.Close() }()
+	start := time.Now()
+	err := earlyCall(ctx, cc, "Unary", "measured", rpc.Idempotent(true))
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := rpcquic.StateForTest(*f.d.last.Load())
+	if state.TLS.DidResume != (mode != "cold") || state.Used0RTT != (mode == "early") {
+		t.Fatalf("%s: DidResume=%v Used0RTT=%v", mode, state.TLS.DidResume, state.Used0RTT)
+	}
+	if state.TLS.Version != tls.VersionTLS13 || state.TLS.CurveID != tls.X25519MLKEM768 || state.TLS.NegotiatedProtocol != rpcquic.ALPN {
+		t.Fatalf("unexpected TLS setup: %+v", state.TLS)
+	}
+	await(ctx, t, f.started)
+	return elapsed, state
+}
+
+// BenchmarkEarlyReconnect separates full TLS, resumption and early data. The
+// independent server-to-client datagram delay adds the named RTT; there are no
+// losses or serial sleeps per datagram. first_reply_ms is a batch mean, not a
+// percentile or a sample per connection.
 func BenchmarkEarlyReconnect(b *testing.B) {
-	for _, early := range []bool{false, true} {
-		b.Run(fmt.Sprintf("0RTT=%t", early), func(b *testing.B) {
-			const rtt = 50 * time.Millisecond
-			ctx, cancel := context.WithTimeout(b.Context(), 2*time.Minute)
-			defer cancel()
-			f := newEarlyFixture(b, rtt, true, nil)
-			f.warm(ctx, b)
-			f.d = &earlyDialer{Dialer: &rpcquic.Dialer{Addr: f.d.Addr, TLSConfig: f.d.TLSConfig, Enable0RTT: early}}
-			var elapsed time.Duration
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				cc := rpc.NewClient(f.d)
-				start := time.Now()
-				err := earlyCall(ctx, cc, "Unary", "measured", rpc.Idempotent(true))
-				elapsed += time.Since(start)
-				if err != nil {
-					b.Fatal(err)
-				}
-				state := rpcquic.StateForTest(*f.d.last.Load())
-				if !state.TLS.DidResume || state.Used0RTT != early {
-					b.Fatal("unexpected handshake mode")
-				}
-				<-f.started
-				_ = cc.Close()
+	for _, rtt := range []time.Duration{0, 50 * time.Millisecond} {
+		b.Run(fmt.Sprintf("RTT=%dms", rtt.Milliseconds()), func(b *testing.B) {
+			for _, mode := range []string{"cold", "resumed", "early"} {
+				b.Run("Mode="+mode, func(b *testing.B) {
+					f := earlyBenchmarkFixture(b, rtt, mode)
+					var elapsed time.Duration
+					var state quic.ConnectionState
+					for b.Loop() {
+						var took time.Duration
+						took, state = earlyBenchmarkCall(b.Context(), b, f, mode)
+						elapsed += took
+					}
+					b.ReportMetric(float64(elapsed)/float64(b.N), "first_reply_ns")
+					b.ReportMetric(float64(elapsed)/float64(b.N)/float64(time.Millisecond), "first_reply_ms")
+					b.ReportMetric(float64(len("measured")), "payload_bytes")
+					if rtt > 0 {
+						b.ReportMetric(float64(elapsed)/float64(b.N)/float64(rtt), "RTT/reply")
+					}
+					b.ReportMetric(float64(rtt)/float64(time.Millisecond), "rtt_ms")
+					b.ReportMetric(float64(state.TLS.Version), "tls_version")
+					b.ReportMetric(float64(state.TLS.CipherSuite), "tls_cipher_suite")
+					b.ReportMetric(float64(state.TLS.CurveID), "tls_curve")
+					resumed, early := 0.0, 0.0
+					if state.TLS.DidResume {
+						resumed = 1
+					}
+					if state.Used0RTT {
+						early = 1
+					}
+					b.ReportMetric(resumed, "did_resume")
+					b.ReportMetric(early, "used_0rtt")
+				})
 			}
-			b.StopTimer()
-			b.ReportMetric(float64(elapsed)/float64(b.N)/float64(time.Millisecond), "first_reply_ms")
-			b.ReportMetric(float64(elapsed)/float64(b.N)/float64(rtt), "RTT/reply")
 		})
+	}
+}
+
+func TestEarlyBenchmarkModes(t *testing.T) {
+	for _, rtt := range []time.Duration{0, 50 * time.Millisecond} {
+		for _, mode := range []string{"cold", "resumed", "early"} {
+			t.Run(fmt.Sprintf("%s/%dms", mode, rtt.Milliseconds()), func(t *testing.T) {
+				f := earlyBenchmarkFixture(t, rtt, mode)
+				for range 2 {
+					earlyBenchmarkCall(transporttest.Context(t), t, f, mode)
+				}
+			})
+		}
 	}
 }
