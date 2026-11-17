@@ -20,6 +20,7 @@ RUNFLAGS  ?=
 # to resume a series.
 MATRIX      ?= testbed/scenarios/pilot.yaml
 SERIESFLAGS ?=
+MICROFLAGS  ?=
 # CPUs of the orchestrator of bench-run and bench-series, the E-cores of the
 # reference machine; empty leaves it unpinned.
 ORCH_CPUS ?= 8-11
@@ -46,7 +47,7 @@ ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
 PLUGIN_PROTOS   := echo/v1/echo.proto
 
-.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run bench-series bench-pilot plots plots-test
+.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run bench-series bench-pilot bench-micro plots plots-test
 
 all: check
 
@@ -107,6 +108,10 @@ plots: $(VENV)/.installed
 
 plots-test: $(VENV)/.installed
 	$(PLOTS_RUN) -m pytest -q analysis/plots
+
+# Memory controls and three TLS reconnect modes; no host tuning or Docker.
+bench-micro: $(VENV)/.installed
+	$(PLOTS_RUN) scripts/microbench.py $(MICROFLAGS)
 
 $(VENV)/.installed: analysis/plots/requirements.txt
 	python3 -m venv $(VENV)

@@ -2,6 +2,7 @@
 
     python -m qrpcplots ingest SERIES [-o DIR]   runs.csv and calls.parquet of a series
     python -m qrpcplots report DIR [-o OUT]      tables, figures and report.md from them
+    python -m qrpcplots micro DIR [-o OUT]       memory and first-reply benchmark report
 
 ingest writes into SERIES/analysis by default, report into DIR.
 """
@@ -12,7 +13,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import data, report
+from . import data, micro, report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -24,6 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     rep = commands.add_parser("report", help="compute the tables and the figures")
     rep.add_argument("dir", type=Path)
     rep.add_argument("-o", "--out", type=Path)
+    mic = commands.add_parser("micro", help="analyze memory and first-reply benchmarks")
+    mic.add_argument("dir", type=Path)
+    mic.add_argument("-o", "--out", type=Path)
     args = parser.parse_args(argv)
 
     if args.command == "ingest":
@@ -33,6 +37,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"qrpcplots: {len(series.runs)} runs, {len(series.calls)} calls into {out}", file=sys.stderr)
         if series.missing:
             print(f"qrpcplots: {len(series.missing)} planned runs are not finished: {', '.join(series.missing)}", file=sys.stderr)
+        return 0
+    if args.command == "micro":
+        for path in micro.report(args.dir, args.out):
+            print(f"qrpcplots: wrote {path}", file=sys.stderr)
         return 0
     runs, calls = data.read_tables(args.dir)
     for path in report.report(runs, calls, args.out or args.dir):
