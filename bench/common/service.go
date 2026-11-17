@@ -67,3 +67,11 @@ func (s quicService) Call(_ context.Context, req *benchv1.CallRequest) (*benchv1
 func (quicService) Echo(s rpc.BidiStreamingServer[benchv1.EchoMessage, benchv1.EchoMessage]) error {
 	return echo(s)
 }
+
+func (s quicService) Bulk(req *benchv1.BulkRequest, stream rpc.ServerStreamingServer[benchv1.BulkChunk]) error {
+	err := s.sendBulk(stream.Context(), req, stream.Send)
+	if e, ok := errors.AsType[*StatusError](err); ok {
+		return rpcstatus.Error(codes.Code(e.Code), e.Message)
+	}
+	return err
+}

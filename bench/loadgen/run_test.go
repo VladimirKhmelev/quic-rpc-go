@@ -45,6 +45,10 @@ func (f *fakeClient) Echo(context.Context) (common.EchoStream, error) {
 	return &fakeEcho{f: f, out: make(chan [2]int, 1000)}, nil
 }
 
+func (f *fakeClient) Bulk(context.Context, int, int) (common.BulkStream, error) {
+	return nil, &common.StatusError{Code: 12}
+}
+
 func (f *fakeClient) Close() error { return nil }
 
 type fakeEcho struct {

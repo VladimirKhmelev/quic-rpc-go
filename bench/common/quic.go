@@ -174,3 +174,15 @@ func listenQUIC(addr string, tlsConf *tls.Config, limits MessageLimits) (*quicSe
 func (s *quicServer) Addr() net.Addr { return s.addr }
 
 func (s *quicServer) Stop() { s.srv.Stop() }
+
+func (c *rpcClient) Bulk(ctx context.Context, total, chunk int) (BulkStream, error) {
+	req, err := bulkRequest(total, chunk, c.limits.MaxPayload())
+	if err != nil {
+		return nil, err
+	}
+	stream, err := c.bench.Bulk(ctx, req)
+	if err != nil {
+		return nil, quicError(err)
+	}
+	return bulkReceiver{ctx: ctx, receive: stream.Recv, result: quicError}, nil
+}

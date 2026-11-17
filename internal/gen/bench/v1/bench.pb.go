@@ -174,6 +174,110 @@ func (x *EchoMessage) GetPayload() []byte {
 	return nil
 }
 
+type BulkRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TotalBytes    uint64                 `protobuf:"varint,1,opt,name=total_bytes,json=totalBytes,proto3" json:"total_bytes,omitempty"`
+	ChunkBytes    uint32                 `protobuf:"varint,2,opt,name=chunk_bytes,json=chunkBytes,proto3" json:"chunk_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BulkRequest) Reset() {
+	*x = BulkRequest{}
+	mi := &file_bench_v1_bench_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BulkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BulkRequest) ProtoMessage() {}
+
+func (x *BulkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bench_v1_bench_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BulkRequest.ProtoReflect.Descriptor instead.
+func (*BulkRequest) Descriptor() ([]byte, []int) {
+	return file_bench_v1_bench_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *BulkRequest) GetTotalBytes() uint64 {
+	if x != nil {
+		return x.TotalBytes
+	}
+	return 0
+}
+
+func (x *BulkRequest) GetChunkBytes() uint32 {
+	if x != nil {
+		return x.ChunkBytes
+	}
+	return 0
+}
+
+type BulkChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Seq           uint64                 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BulkChunk) Reset() {
+	*x = BulkChunk{}
+	mi := &file_bench_v1_bench_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BulkChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BulkChunk) ProtoMessage() {}
+
+func (x *BulkChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_bench_v1_bench_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BulkChunk.ProtoReflect.Descriptor instead.
+func (*BulkChunk) Descriptor() ([]byte, []int) {
+	return file_bench_v1_bench_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *BulkChunk) GetSeq() uint64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *BulkChunk) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
 var File_bench_v1_bench_proto protoreflect.FileDescriptor
 
 const file_bench_v1_bench_proto_rawDesc = "" +
@@ -186,10 +290,19 @@ const file_bench_v1_bench_proto_rawDesc = "" +
 	"\apayload\x18\x01 \x01(\fR\apayload\"9\n" +
 	"\vEchoMessage\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x18\n" +
-	"\apayload\x18\x02 \x01(\fR\apayload2x\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\"O\n" +
+	"\vBulkRequest\x12\x1f\n" +
+	"\vtotal_bytes\x18\x01 \x01(\x04R\n" +
+	"totalBytes\x12\x1f\n" +
+	"\vchunk_bytes\x18\x02 \x01(\rR\n" +
+	"chunkBytes\"7\n" +
+	"\tBulkChunk\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x18\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload2\xae\x01\n" +
 	"\x05Bench\x125\n" +
 	"\x04Call\x12\x15.bench.v1.CallRequest\x1a\x16.bench.v1.CallResponse\x128\n" +
-	"\x04Echo\x12\x15.bench.v1.EchoMessage\x1a\x15.bench.v1.EchoMessage(\x010\x01BFZDgithub.com/VladimirKhmelev/quic-rpc-go/internal/gen/bench/v1;benchv1b\x06proto3"
+	"\x04Echo\x12\x15.bench.v1.EchoMessage\x1a\x15.bench.v1.EchoMessage(\x010\x01\x124\n" +
+	"\x04Bulk\x12\x15.bench.v1.BulkRequest\x1a\x13.bench.v1.BulkChunk0\x01BFZDgithub.com/VladimirKhmelev/quic-rpc-go/internal/gen/bench/v1;benchv1b\x06proto3"
 
 var (
 	file_bench_v1_bench_proto_rawDescOnce sync.Once
@@ -203,19 +316,23 @@ func file_bench_v1_bench_proto_rawDescGZIP() []byte {
 	return file_bench_v1_bench_proto_rawDescData
 }
 
-var file_bench_v1_bench_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_bench_v1_bench_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_bench_v1_bench_proto_goTypes = []any{
 	(*CallRequest)(nil),  // 0: bench.v1.CallRequest
 	(*CallResponse)(nil), // 1: bench.v1.CallResponse
 	(*EchoMessage)(nil),  // 2: bench.v1.EchoMessage
+	(*BulkRequest)(nil),  // 3: bench.v1.BulkRequest
+	(*BulkChunk)(nil),    // 4: bench.v1.BulkChunk
 }
 var file_bench_v1_bench_proto_depIdxs = []int32{
 	0, // 0: bench.v1.Bench.Call:input_type -> bench.v1.CallRequest
 	2, // 1: bench.v1.Bench.Echo:input_type -> bench.v1.EchoMessage
-	1, // 2: bench.v1.Bench.Call:output_type -> bench.v1.CallResponse
-	2, // 3: bench.v1.Bench.Echo:output_type -> bench.v1.EchoMessage
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	3, // 2: bench.v1.Bench.Bulk:input_type -> bench.v1.BulkRequest
+	1, // 3: bench.v1.Bench.Call:output_type -> bench.v1.CallResponse
+	2, // 4: bench.v1.Bench.Echo:output_type -> bench.v1.EchoMessage
+	4, // 5: bench.v1.Bench.Bulk:output_type -> bench.v1.BulkChunk
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -232,7 +349,7 @@ func file_bench_v1_bench_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bench_v1_bench_proto_rawDesc), len(file_bench_v1_bench_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
+	"github.com/quic-go/quic-go/http3"
 
 	"github.com/VladimirKhmelev/quic-rpc-go/bench/baseline/httpgrpc"
 	benchv1 "github.com/VladimirKhmelev/quic-rpc-go/internal/gen/bench/v1"
@@ -76,6 +77,13 @@ func (c *connectClient) result(ctx context.Context, err error) error {
 		code = connect.CodeDeadlineExceeded
 	case ctx.Err() != nil || c.http.IsClosed():
 		code = connect.CodeCanceled
+	case code == connect.CodeInternal:
+		// connect-go wraps a connection closed mid-envelope as Internal.
+		// H3_NO_ERROR is a transport shutdown, not a peer RPC verdict.
+		ce, _ := errors.AsType[*connect.Error](err)
+		if he, ok := errors.AsType[*http3.Error](err); ok && he.ErrorCode == http3.ErrCodeNoError && ce != nil && !ce.IsRemote() {
+			code = connect.CodeUnavailable
+		}
 	case code == connect.CodeUnknown || code == connect.CodeCanceled:
 		// Preserve peer verdicts. With a live call context and client,
 		// local cancellation (including connect-go's EPIPE/ECONNRESET
@@ -150,4 +158,27 @@ func listenConnect(t Transport, addr string, tlsConf *tls.Config, limits Message
 		mux.ServeHTTP(w, r)
 	})
 	return httpgrpc.Listen(addr, tlsConf, httpVersion(t), handler)
+}
+
+func (c *connectClient) Bulk(ctx context.Context, total, chunk int) (BulkStream, error) {
+	req, err := bulkRequest(total, chunk, c.limits.MaxPayload())
+	if err != nil {
+		return nil, err
+	}
+	stream, err := c.bench.Bulk(ctx, req)
+	if err != nil {
+		return nil, c.result(ctx, err)
+	}
+	return bulkReceiver{ctx: ctx, receive: stream.Receive, result: func(err error) error {
+		_ = stream.Close()
+		return c.result(ctx, err)
+	}}, nil
+}
+
+func (s connectService) Bulk(ctx context.Context, req *benchv1.BulkRequest, stream benchv1connect.BenchBulkServerStream) error {
+	err := s.sendBulk(ctx, req, stream.Send)
+	if e, ok := errors.AsType[*StatusError](err); ok {
+		return connect.NewError(connect.Code(e.Code), e.Message)
+	}
+	return err
 }
