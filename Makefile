@@ -75,8 +75,7 @@ fuzz:
 testbed-shell:
 	go run ./testbed/cmd/testbed shell -profile $(PROFILE)
 
-# The self-check of every profile and point (NET-4), about 11 minutes;
-# needs iperf3.
+# The self-check of every profile and point (NET-4); needs iperf3.
 testbed-check:
 	go run ./testbed/cmd/testbed check -all -v
 

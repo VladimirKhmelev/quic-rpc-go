@@ -12,8 +12,7 @@
 #   outage        the link is cut for duration, starting every period:
 #                 {duration: 2s, every: 60s}; testbed run keeps the schedule
 #
-# The values are preliminary: the pilot (phase 2) ran interregion only, and
-# they are refined with the matrix of the main series.
+# Q-05 uses these five profiles in the main series. The pilot ran interregion only.
 profiles:
   - name: datacenter
     description: Один дата-центр

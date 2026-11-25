@@ -1,0 +1,16 @@
+# EXP-9: include the ordinary single connection as a control for pool size 1.
+name: main-sweep-pool
+seed: 10
+repeats: 10
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+  - {name: grpc-h2-pool-1, transport: grpc-h2-pool, tcp: aligned, pool_size: 1}
+  - {name: grpc-h2-pool-2, transport: grpc-h2-pool, tcp: aligned, pool_size: 2}
+  - {name: grpc-h2-pool-4, transport: grpc-h2-pool, tcp: aligned, pool_size: 4}
+  - {name: grpc-h2-pool-8, transport: grpc-h2-pool, tcp: aligned, pool_size: 8}
+networks: [base, loss-2]
+loads: [small, small-heavy]
+drift: base

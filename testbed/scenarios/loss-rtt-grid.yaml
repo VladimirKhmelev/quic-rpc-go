@@ -1,0 +1,12 @@
+# Non-overlapping points of EXP-3. The full grid also uses the five
+# uniform-loss points at 50ms and the lossless 20ms/150ms points from points.yaml.
+# Keep the bottleneck queue equal to one BDP at 50ms for all 15 points.
+profiles:
+  - {name: rtt-20-loss-0p5, description: 'RTT 20 мс, потери 0,5%', rtt: 20ms, loss: 0.5%, rate: 100Mbit, queue_bdp: 2.5}
+  - {name: rtt-20-loss-1, description: 'RTT 20 мс, потери 1%', rtt: 20ms, loss: 1%, rate: 100Mbit, queue_bdp: 2.5}
+  - {name: rtt-20-loss-2, description: 'RTT 20 мс, потери 2%', rtt: 20ms, loss: 2%, rate: 100Mbit, queue_bdp: 2.5}
+  - {name: rtt-20-loss-5, description: 'RTT 20 мс, потери 5%', rtt: 20ms, loss: 5%, rate: 100Mbit, queue_bdp: 2.5}
+  - {name: rtt-150-loss-0p5, description: 'RTT 150 мс, потери 0,5%', rtt: 150ms, loss: 0.5%, rate: 100Mbit, queue_bdp: 0.333333}
+  - {name: rtt-150-loss-1, description: 'RTT 150 мс, потери 1%', rtt: 150ms, loss: 1%, rate: 100Mbit, queue_bdp: 0.333333}
+  - {name: rtt-150-loss-2, description: 'RTT 150 мс, потери 2%', rtt: 150ms, loss: 2%, rate: 100Mbit, queue_bdp: 0.333333}
+  - {name: rtt-150-loss-5, description: 'RTT 150 мс, потери 5%', rtt: 150ms, loss: 5%, rate: 100Mbit, queue_bdp: 0.333333}

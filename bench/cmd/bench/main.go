@@ -31,7 +31,7 @@
 //
 // run makes one run of the benchmark in the network testbed (Linux only,
 // no root; see docs/testbed.md): it builds the testbed with the network
-// profile -profile of testbed/scenarios/profiles.yaml or points.yaml (or of
+// profile -profile of the bundled testbed/scenarios YAML files (or of
 // -profiles FILE) and the TCP setup -tcp, starts the server in namespace server on
 // CPUs -server-cpus and the load generator with load profile -load in
 // namespace client on CPUs -client-cpus, both with GOMAXPROCS=-gomaxprocs
@@ -344,7 +344,7 @@ func serve(t common.Transport, addr, certsDir string, limits common.MessageLimit
 // the profiles and the points of block 1.
 func networkProfiles(file string) ([]netns.Profile, error) {
 	if file == "" {
-		return netns.ParseProfiles(scenarios.Profiles, scenarios.Points)
+		return netns.ParseProfiles(scenarios.Profiles, scenarios.Points, scenarios.LossRTTGrid)
 	}
 	data, err := os.ReadFile(file) //nolint:gosec // the file the user named
 	if err != nil {
