@@ -24,17 +24,24 @@ func bundled(t *testing.T, name string) Profile {
 	return p
 }
 
-// TestBundledProfiles checks load.yaml against the table of load parameters
-// in repo-requirements.md.
+// TestBundledProfiles checks the historical defaults and the main-series loads.
 func TestBundledProfiles(t *testing.T) {
-	small := &Small{Rate: 200, MinSize: 100, MaxSize: 1000}
+	smallAt := func(rate float64) *Small { return &Small{Rate: rate, MinSize: 100, MaxSize: 1000} }
+	small := smallAt(200)
 	want := map[string]Profile{
-		"bulk":        {Bulk: &Bulk{TotalBytes: 100 << 20, ChunkBytes: 64 << 10, Timeout: time.Minute}},
-		"small":       {Small: small},
-		"small-heavy": {Small: small, Heavy: &Heavy{Size: 1 << 20, Every: time.Second}},
-		"heavy-8m":    {Heavy: &Heavy{Size: 8 << 20, Every: time.Second}},
-		"bidi":        {Echo: &Echo{Rate: 20, Size: 200}},
-		"reconnect":   {Small: &Small{MinSize: 100, MaxSize: 1000}, Reconnect: &Reconnect{Every: 5 * time.Second, Calls: 10}},
+		"bulk":               {Bulk: &Bulk{TotalBytes: 100 << 20, ChunkBytes: 64 << 10, Timeout: time.Minute}},
+		"small":              {Small: small},
+		"small-heavy":        {Small: small, Heavy: &Heavy{Size: 1 << 20, Every: time.Second}},
+		"heavy-8m":           {Heavy: &Heavy{Size: 8 << 20, Every: time.Second}},
+		"bidi":               {Echo: &Echo{Rate: 20, Size: 200}},
+		"reconnect":          {Small: smallAt(0), Reconnect: &Reconnect{Every: 5 * time.Second, Calls: 10}},
+		"small-50":           {Small: smallAt(50)},
+		"small-1000":         {Small: smallAt(1000)},
+		"small-heavy-1mbit":  {Small: smallAt(50), Heavy: &Heavy{Size: 64 << 10, Every: 2 * time.Second}},
+		"small-heavy-10mbit": {Small: small, Heavy: &Heavy{Size: 1 << 20, Every: 2200 * time.Millisecond}},
+		"small-heavy-64k":    {Small: small, Heavy: &Heavy{Size: 64 << 10, Every: 2 * time.Second}},
+		"small-heavy-1m":     {Small: small, Heavy: &Heavy{Size: 1 << 20, Every: 2 * time.Second}},
+		"small-heavy-8m":     {Small: small, Heavy: &Heavy{Size: 8 << 20, Every: 2 * time.Second}},
 	}
 	profiles, err := ParseProfiles(scenarios.Loads)
 	if err != nil {

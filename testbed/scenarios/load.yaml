@@ -40,3 +40,38 @@ loads:
   - name: bulk
     description: Один server-stream 100 МиБ блоками по 64 КиБ
     bulk: {total_bytes: 104857600, chunk_bytes: 65536, timeout: 60s}
+
+  # Narrow links: keep the expected useful load below 50% in each direction.
+  - name: small-heavy-1mbit
+    description: Мелкие и ответ 64 КиБ на канале 1 Мбит/с
+    small: {rate: 50, min_size: 100, max_size: 1000}
+    heavy: {size: 65536, every: 2s}
+
+  - name: small-heavy-10mbit
+    description: Мелкие и ответ 1 МиБ на канале 10 Мбит/с
+    small: {rate: 200, min_size: 100, max_size: 1000}
+    heavy: {size: 1048576, every: 2200ms}
+
+  # EXP-9: vary either the small call rate or the heavy response size.
+  - name: small-50
+    description: Мелкие unary, 50 вызовов/с
+    small: {rate: 50, min_size: 100, max_size: 1000}
+
+  - name: small-1000
+    description: Мелкие unary, 1000 вызовов/с
+    small: {rate: 1000, min_size: 100, max_size: 1000}
+
+  - name: small-heavy-64k
+    description: Мелкие и ответ 64 КиБ раз в 2 с
+    small: {rate: 200, min_size: 100, max_size: 1000}
+    heavy: {size: 65536, every: 2s}
+
+  - name: small-heavy-1m
+    description: Мелкие и ответ 1 МиБ раз в 2 с
+    small: {rate: 200, min_size: 100, max_size: 1000}
+    heavy: {size: 1048576, every: 2s}
+
+  - name: small-heavy-8m
+    description: Мелкие и ответ 8 МиБ раз в 2 с
+    small: {rate: 200, min_size: 100, max_size: 1000}
+    heavy: {size: 8388608, every: 2s}
