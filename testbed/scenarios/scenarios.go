@@ -16,6 +16,11 @@ var Profiles []byte
 //go:embed points.yaml
 var Points []byte
 
+// LossRTTGrid is the extension of the uniform-loss axis to 20ms and 150ms (EXP-3).
+//
+//go:embed loss-rtt-grid.yaml
+var LossRTTGrid []byte
+
 // Loads is load.yaml, the load profiles run by name.
 //
 //go:embed load.yaml

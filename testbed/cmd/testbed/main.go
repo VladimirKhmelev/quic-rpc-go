@@ -30,7 +30,7 @@
 //
 // SETUP is the TCP setup of the end hosts, aligned (the default) or
 // default (NET-6). The profiles are those of testbed/scenarios/profiles.yaml
-// and the points of block 1 of testbed/scenarios/points.yaml; every command
+// and the points of EXP-2 and EXP-3 in testbed/scenarios; every command
 // takes -profiles FILE to read them from FILE instead. "none" means no
 // impairments.
 package main
@@ -323,11 +323,10 @@ func oneProfile(fs *flag.FlagSet, profiles []netns.Profile) (netns.Profile, erro
 	return netns.Lookup(profiles, fs.Arg(0))
 }
 
-// loadProfiles reads the profiles of file, or the bundled ones: the
-// profiles and the points of block 1.
+// loadProfiles reads the profiles of file, or the bundled profiles and points.
 func loadProfiles(file string) ([]netns.Profile, error) {
 	if file == "" {
-		return netns.ParseProfiles(scenarios.Profiles, scenarios.Points)
+		return netns.ParseProfiles(scenarios.Profiles, scenarios.Points, scenarios.LossRTTGrid)
 	}
 	f, err := os.Open(file) //nolint:gosec // the file the user named
 	if err != nil {

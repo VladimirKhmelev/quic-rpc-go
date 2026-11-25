@@ -8,10 +8,9 @@
 # rtt and rate, so it differs where those differ. Losses in bursts have a
 # mean burst of 4 packets. The fields are those of profiles.yaml.
 #
-# Jitter 30ms of the requirements is missing: it exceeds the one-way delay
-# of the base point, 25ms, and the testbed refuses that, since netem would
-# cut a fifth of the normally distributed delays at zero. The jitter axis is
-# settled with the matrix of the main series: the pilot had no jitter point.
+# The 10ms point around base is kept as a cross-check. The full jitter axis
+# uses rtt-150 as its common reference: 30ms exceeds the 25ms one-way delay
+# at base. Both jitter points on this axis use the queue of rtt-150.
 profiles:
   - name: base
     description: Базовая точка
@@ -97,6 +96,20 @@ profiles:
     jitter: 10ms
     rate: 100Mbit
     queue_bdp: 1
+
+  - name: rtt-150-jitter-10
+    description: RTT 150 мс, джиттер 10 мс
+    rtt: 150ms
+    jitter: 10ms
+    rate: 100Mbit
+    queue_bdp: 0.333333
+
+  - name: rtt-150-jitter-30
+    description: RTT 150 мс, джиттер 30 мс
+    rtt: 150ms
+    jitter: 30ms
+    rate: 100Mbit
+    queue_bdp: 0.333333
 
   - name: reorder-1
     description: Переупорядочивание 1%
