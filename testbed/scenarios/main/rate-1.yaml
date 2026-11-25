@@ -1,0 +1,14 @@
+# EXP-2: 1 Mbit/s with a reduced small and heavy load.
+name: main-rate-1
+seed: 3
+repeats: 25
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+  - {name: grpc-h2-pool-4, transport: grpc-h2-pool, tcp: aligned, pool_size: 4}
+  - {name: grpc-h3, transport: grpc-h3, tcp: aligned}
+networks: [rate-1]
+loads: [small-50, small-heavy-1mbit, bidi, reconnect]
+drift: base

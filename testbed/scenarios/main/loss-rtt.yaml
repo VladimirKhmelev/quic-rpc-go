@@ -1,0 +1,12 @@
+# EXP-3: eight remaining cells of the 15-point grid.
+name: main-loss-rtt
+seed: 7
+repeats: 25
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+networks: [rtt-20-loss-0p5, rtt-20-loss-1, rtt-20-loss-2, rtt-20-loss-5, rtt-150-loss-0p5, rtt-150-loss-1, rtt-150-loss-2, rtt-150-loss-5]
+loads: [small, small-heavy]
+drift: base

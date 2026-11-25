@@ -1,0 +1,14 @@
+# EXP-3: remaining compound profiles above 10 Mbit/s.
+name: main-compound
+seed: 6
+repeats: 25
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+  - {name: grpc-h2-pool-4, transport: grpc-h2-pool, tcp: aligned, pool_size: 4}
+  - {name: grpc-h3, transport: grpc-h3, tcp: aligned}
+networks: [nearby-zones, interregion]
+loads: [small, small-heavy, bidi, reconnect]
+drift: base
