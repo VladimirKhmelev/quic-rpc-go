@@ -1,0 +1,12 @@
+# EXP-9: small unary rates 50/200/1000 per second.
+name: main-sweep-intensity
+seed: 8
+repeats: 10
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic, transport: quic, tcp: aligned}
+  - {name: grpc-h2, transport: grpc-h2, tcp: aligned}
+networks: [base, loss-2]
+loads: [small-50, small, small-1000]
+drift: base

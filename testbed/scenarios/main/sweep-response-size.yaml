@@ -1,0 +1,12 @@
+# EXP-9: one response every 2s at all three sizes, with 9 MiB limits.
+name: main-sweep-response-size
+seed: 9
+repeats: 10
+warmup: 5s
+duration: 30s
+variants:
+  - {name: quic-9m, transport: quic, tcp: aligned, max_recv_msg_bytes: 9437184, max_send_msg_bytes: 9437184}
+  - {name: grpc-h2-9m, transport: grpc-h2, tcp: aligned, max_recv_msg_bytes: 9437184, max_send_msg_bytes: 9437184}
+networks: [base, loss-2]
+loads: [small-heavy-64k, small-heavy-1m, small-heavy-8m]
+drift: base
