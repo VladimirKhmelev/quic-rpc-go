@@ -28,6 +28,8 @@ ORCH_CPUS ?= 8-11
 # alone, plots works from the runs.csv and calls.parquet already there.
 SERIES   ?=
 ANALYSIS ?= $(if $(SERIES),$(SERIES)/analysis)
+MAIN_SERIES ?=
+MAIN_MICRO  ?=
 # The Python of the analysis, with the packages of requirements.txt.
 VENV      := .venv
 PLOTS_RUN := PYTHONPATH=analysis/plots $(VENV)/bin/python
@@ -47,7 +49,7 @@ ROOT_MODULE := github.com/VladimirKhmelev/quic-rpc-go
 PLUGIN_TESTDATA := rpc/cmd/protoc-gen-rpcquic/testdata
 PLUGIN_PROTOS   := echo/v1/echo.proto
 
-.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run bench-series bench-pilot bench-micro plots plots-test
+.PHONY: all check test vet lint fmt-check tidy-check fuzz proto proto-check proto-check-go proto-check-descriptors testbed-shell testbed-check host-setup host-restore bench-run bench-series bench-pilot bench-micro plots plots-main plots-test
 
 all: check
 
@@ -107,6 +109,10 @@ plots: $(VENV)/.installed
 
 plots-test: $(VENV)/.installed
 	$(PLOTS_RUN) -m pytest -q analysis/plots
+
+plots-main: $(VENV)/.installed
+	@test -n "$(MAIN_SERIES)" || { echo "plots-main needs MAIN_SERIES=DIR"; exit 2; }
+	$(PLOTS_RUN) -m qrpcplots main "$(MAIN_SERIES)" $(if $(ANALYSIS),-o "$(ANALYSIS)") $(if $(MAIN_MICRO),--micro "$(MAIN_MICRO)")
 
 # Memory controls and three TLS reconnect modes; no host tuning or Docker.
 bench-micro: $(VENV)/.installed
