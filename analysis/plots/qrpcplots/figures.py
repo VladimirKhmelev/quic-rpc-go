@@ -126,6 +126,9 @@ def fig_ecdf(calls: pd.DataFrame, runs: pd.DataFrame, network: str, load: str, k
         share = np.arange(1, len(latency) + 1) / len(latency)
         cdf.plot(latency, share, label=variant, color=palette[variant])
         tail.plot(latency, 1 - share + 1 / len(latency), label=variant, color=palette[variant])
+    if not counts:
+        plt.close(fig)
+        return False
     for ax in (cdf, tail):
         plain_log(ax.xaxis)
         ax.set_xlabel(f"задержка вызова {kind}, мс")

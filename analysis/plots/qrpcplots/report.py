@@ -62,6 +62,10 @@ def report(runs: pd.DataFrame, calls: pd.DataFrame, out: str | Path) -> list[Pat
         path.write_text(body + "\n" + bulk.text(bulk_runs), encoding="utf-8")
         return written
     summary = stats.run_summary(runs, calls)
+    if summary.empty:
+        path = out / "report.md"
+        path.write_text("# Сводка серии\n\nВ окне измерения нет вызовов. Оценки задержки и прогрева отсутствуют.\n", encoding="utf-8")
+        return [path]
     tables = {
         "summary": summary,
         "cells": stats.cells(summary),
@@ -213,7 +217,7 @@ def summary_text(runs: pd.DataFrame, tables: dict[str, pd.DataFrame], drawn: lis
         ]
 
     warm = tables["warmup"]
-    if not warm.empty:
+    if not warm.empty and warm["head_ratio"].notna().any():
         w = warm[(warm["kind"] == KIND) & (warm["role"] == "")].groupby(["network", "load", "variant"])["head_ratio"].median().reset_index()
         w["head_ratio"] = w["head_ratio"].map(fmt)
         parts += [
@@ -225,6 +229,8 @@ def summary_text(runs: pd.DataFrame, tables: dict[str, pd.DataFrame], drawn: lis
             markdown(w),
             "",
         ]
+    else:
+        parts += ["## Прогрев", "", "Оценка отсутствует: нужны вызовы в первых 5 с измерения и после них.", ""]
 
     drift = tables["drift"]
     if not drift.empty:

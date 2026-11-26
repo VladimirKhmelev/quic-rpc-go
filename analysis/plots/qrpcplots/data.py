@@ -233,6 +233,31 @@ def run_row(planned: dict, meta: dict) -> dict:
     }
 
 
+def read_run(path: Path, planned: dict, loads: dict, networks: dict | None = None) -> tuple[dict, pd.DataFrame] | None:
+    """Reads one finished run. Main-series callers also check the full profile definitions."""
+    run_dir = path / planned["id"]
+    try:
+        with (run_dir / "meta.json").open(encoding="utf-8") as f:
+            meta = json.load(f)
+    except FileNotFoundError:
+        return None
+    load = loads.get(planned["load"])
+    if networks is not None:
+        if meta["network"] != networks[planned["network"]] or meta["load"] != load:
+            raise ValueError(f"{run_dir}: network or load differs from plan")
+        if (meta["run_id"], meta["seed"], meta["tcp"]) != (planned["id"], planned["seed"], planned["tcp"]):
+            raise ValueError(f"{run_dir}: run identity, seed or TCP setup differs from plan")
+    elif load is not None and load.get("bulk") != meta.get("load", {}).get("bulk"):
+        raise ValueError(f"{run_dir}: bulk profile differs from plan")
+    row = run_row(planned, meta)
+    calls = pd.read_csv(run_dir / "calls.csv", dtype=CALL_DTYPES)
+    if "chunks" not in calls:
+        calls["chunks"] = 0
+    validate_bulk_calls(row, calls)
+    calls.insert(0, "run_id", planned["id"])
+    return row, calls
+
+
 def read_series(path: str | Path) -> Series:
     """Reads the finished runs of the series in path, in the order of its
     plan."""
@@ -240,24 +265,14 @@ def read_series(path: str | Path) -> Series:
     with open(path / "series.json", encoding="utf-8") as f:
         plan = json.load(f)
     rows, calls, missing = [], [], []
+    definitions = {p["name"]: p for p in plan.get("loads", [])}
     for planned in plan["runs"]:
-        run_dir = path / planned["id"]
-        try:
-            with open(run_dir / "meta.json", encoding="utf-8") as f:
-                meta = json.load(f)
-        except FileNotFoundError:
+        item = read_run(path, planned, definitions)
+        if item is None:
             missing.append(planned["id"])
             continue
-        row = run_row(planned, meta)
-        definitions = {p["name"]: p for p in plan.get("loads", [])}
-        if planned["load"] in definitions and definitions[planned["load"]].get("bulk") != meta.get("load", {}).get("bulk"):
-            raise ValueError(f"{planned['id']}: bulk profile differs from plan")
+        row, c = item
         rows.append(row)
-        c = pd.read_csv(run_dir / "calls.csv", dtype=CALL_DTYPES)
-        if "chunks" not in c:
-            c["chunks"] = 0
-        validate_bulk_calls(row, c)
-        c.insert(0, "run_id", planned["id"])
         calls.append(c)
     if not rows:
         raise ValueError(f"{path}: no finished runs")

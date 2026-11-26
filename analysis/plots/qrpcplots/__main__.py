@@ -3,6 +3,7 @@
     python -m qrpcplots ingest SERIES [-o DIR]   runs.csv and calls.parquet of a series
     python -m qrpcplots report DIR [-o OUT]      tables, figures and report.md from them
     python -m qrpcplots micro DIR [-o OUT]       memory and first-reply benchmark report
+    python -m qrpcplots main DIR [-o OUT] [--micro Q04]   main-series report from raw data
 
 ingest writes into SERIES/analysis by default, report into DIR.
 """
@@ -13,7 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import data, micro, report
+from . import data, main_report, micro, report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,6 +29,10 @@ def main(argv: list[str] | None = None) -> int:
     mic = commands.add_parser("micro", help="analyze memory and first-reply benchmarks")
     mic.add_argument("dir", type=Path)
     mic.add_argument("-o", "--out", type=Path)
+    series = commands.add_parser("main", help="analyze the Q-05 matrices from their raw runs")
+    series.add_argument("dir", type=Path)
+    series.add_argument("-o", "--out", type=Path)
+    series.add_argument("--micro", type=Path, help="optional completed Q-04 microbenchmark collection")
     args = parser.parse_args(argv)
 
     if args.command == "ingest":
@@ -40,6 +45,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "micro":
         for path in micro.report(args.dir, args.out):
+            print(f"qrpcplots: wrote {path}", file=sys.stderr)
+        return 0
+    if args.command == "main":
+        try:
+            paths = main_report.report(args.dir, args.out, args.micro)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"qrpcplots main: {exc}", file=sys.stderr)
+            return 1
+        for path in paths:
             print(f"qrpcplots: wrote {path}", file=sys.stderr)
         return 0
     runs, calls = data.read_tables(args.dir)

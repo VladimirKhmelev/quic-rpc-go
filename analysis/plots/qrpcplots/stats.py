@@ -67,7 +67,23 @@ def growth(calls: pd.DataFrame, warmup_ns: int, measure_ns: int) -> float:
     first, last = latency[since < measure_ns / 3], latency[since >= 2 * measure_ns / 3]
     if len(first) == 0 or len(last) == 0:
         return float("nan")
-    return float(np.median(last) / np.median(first))
+    first_median, last_median = float(np.median(first)), float(np.median(last))
+    if first_median == 0:
+        return float("inf") if last_median > 0 else float("nan")
+    return last_median / first_median
+
+
+def summarize_calls(calls: pd.DataFrame, warmup_ns: int, measure_ns: int) -> dict:
+    """Summarizes a nonempty group of measured calls of one kind."""
+    latency = calls["latency_ns"].to_numpy() / 1e6
+    errors = int((calls["code"] != 0).sum())
+    error_pct = 100 * errors / len(calls)
+    delay_growth = growth(calls, warmup_ns, measure_ns)
+    return {
+        "count": len(calls), "errors": errors, "error_pct": error_pct, "growth": delay_growth,
+        "overloaded": error_pct > OVERLOAD_ERRORS_PCT or delay_growth > OVERLOAD_GROWTH,
+        **{name: nearest_rank(latency, q) for name, q in QUANTILES.items()},
+    }
 
 
 def run_summary(runs: pd.DataFrame, calls: pd.DataFrame) -> pd.DataFrame:
@@ -80,15 +96,8 @@ def run_summary(runs: pd.DataFrame, calls: pd.DataFrame) -> pd.DataFrame:
     measured = calls[calls["phase"] == "measure"]
     rows = []
     for (run_id, kind), group in measured.groupby(["run_id", "kind"], observed=True):
-        latency = group["latency_ns"].to_numpy() / 1e6
-        errors = int((group["code"] != 0).sum())
-        row = {"run_id": run_id, "kind": kind, "count": len(group), "errors": errors,
-               "error_pct": 100 * errors / len(group)}
-        row.update({name: nearest_rank(latency, q) for name, q in QUANTILES.items()})
-        row["growth"] = growth(group, *window.loc[run_id])
-        row["overloaded"] = bool(row["error_pct"] > OVERLOAD_ERRORS_PCT or row["growth"] > OVERLOAD_GROWTH)
-        rows.append(row)
-    summary = pd.DataFrame(rows)
+        rows.append({"run_id": run_id, "kind": kind, **summarize_calls(group, *window.loc[run_id])})
+    summary = pd.DataFrame(rows, columns=["run_id", "kind", "count", "errors", "error_pct", "growth", "overloaded", *QUANTILES])
     return runs.merge(summary, on="run_id")
 
 
@@ -248,12 +257,19 @@ def warmup(runs: pd.DataFrame, calls: pd.DataFrame, head_s: float = 5.0) -> pd.D
     measured = calls[calls["phase"] == "measure"]
     rows = []
     for (run_id, kind), group in measured.groupby(["run_id", "kind"], observed=True):
-        since = group["scheduled_ns"].to_numpy() - start[run_id]
-        latency = group["latency_ns"].to_numpy()
-        head, rest = latency[since < head_s * 1e9], latency[since >= head_s * 1e9]
-        if len(head) and len(rest):
-            rows.append({"run_id": run_id, "kind": kind, "head_ratio": float(np.median(head) / np.median(rest))})
-    return runs.merge(pd.DataFrame(rows), on="run_id")
+        rows.append({"run_id": run_id, "kind": kind, "head_ratio": warmup_ratio(group, start[run_id], head_s)})
+    return runs.merge(pd.DataFrame(rows, columns=["run_id", "kind", "head_ratio"]), on="run_id")
+
+
+def warmup_ratio(group: pd.DataFrame, warmup_ns: int, head_s: float = 5.0) -> float:
+    since = group["scheduled_ns"].to_numpy() - warmup_ns
+    latency = group["latency_ns"].to_numpy()
+    head, rest = latency[since < head_s * 1e9], latency[since >= head_s * 1e9]
+    if len(head) and len(rest):
+        tail = float(np.median(rest))
+        if tail > 0:
+            return float(np.median(head)) / tail
+    return float("nan")
 
 
 def drift(summary: pd.DataFrame) -> pd.DataFrame:
