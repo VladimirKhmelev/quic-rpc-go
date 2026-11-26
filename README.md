@@ -238,6 +238,7 @@ make bench-pilot     # пилотная серия на настроенной �
 make bench-series MATRIX=my.yaml SERIESFLAGS=-dry-run   # план серии по своей матрице
 make bench-micro          # RPC в памяти и три режима TLS; отдельные данные в out/
 make plots SERIES=out/…   # таблицы, рисунки и сводка серии в out/…/analysis
+make plots-main MAIN_SERIES=out/main  # вердикты H1–H6 и графики по сырым матрицам Q-05
 make plots ANALYSIS=data/pilot   # пересобрать данные пилота (calls.parquet — из релиза)
 make plots-test           # тесты анализа
 ```
